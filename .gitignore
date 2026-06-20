@@ -1,0 +1,31 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# SQLite Database
+cherry.db
+cherry.db-journal
+
+# Environment Config (API keys)
+.env
+
+# Pycache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary Playwright script runs
+temp_playwright.py
+
+# Personal Document Vaults (Ignore uploads and sorted data to protect privacy)
+incoming/*
+!incoming/.gitkeep
+documents/*
+!documents/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+.gemini/

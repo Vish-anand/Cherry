@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cherry — Clean Assistant Interface</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="cherry-app">
+        <!-- Sidebar: Chat Control & System Info -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-logo">🍒</div>
+                <h2>Cherry</h2>
+                <div class="status-dot" title="Cherry Engine Active"></div>
+            </div>
+            
+            <div class="sidebar-menu">
+                <div class="menu-label">Recent Conversations</div>
+                <div class="session-list">
+                    <div class="session-item active">
+                        <i class="fa-regular fa-message"></i>
+                        <span>Default Session</span>
+                    </div>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Main Body Workspace -->
+        <div class="main-body">
+            <!-- Left Side: Refined Chat Console -->
+            <section class="chat-section">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <span>Agent Console</span>
+                        <div class="engine-pill">ReAct-V2</div>
+                    </div>
+                    <button class="clear-btn" onclick="window.location.reload()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                </div>
+                
+                <div class="chat-feed" id="chat-messages">
+                    <div class="msg-bubble system">
+                        <div class="msg-avatar">🍒</div>
+                        <div class="msg-text">
+                            Hello! I am Cherry. I have access to your local workspace, document vault, web tools, system volume, printer controls, and dynamic browser automation via Playwright. Tell me what to do.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-area">
+                    <div class="attachment-bar" id="attach-preview" style="display: none;">
+                        <span class="attach-name"><i class="fa-solid fa-paperclip"></i> <span id="preview-filename"></span></span>
+                        <button id="clear-attach-btn" class="icon-btn"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="textarea-wrapper">
+                        <textarea id="chat-input" rows="1" placeholder="Type a message or drop files here..."></textarea>
+                        <div class="input-actions">
+                            <label for="chat-file-upload" class="action-icon-btn">
+                                <i class="fa-solid fa-paperclip"></i>
+                                <input type="file" id="chat-file-upload" style="display: none;">
+                            </label>
+                            <button id="send-btn" class="send-action-btn"><i class="fa-solid fa-arrow-up"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Side: Secondary Interface Tabs -->
+            <section class="tools-section">
+                <nav class="tools-tabs">
+                    <button class="tab-trigger active" data-tab="doc-bank">Document Library</button>
+                    <button class="tab-trigger" data-tab="whatsapp-sim">WhatsApp Sandbox</button>
+                    <button class="tab-trigger" data-tab="workspace">Files</button>
+                </nav>
+
+                <!-- Tab 1: Document Bank -->
+                <div class="tools-tab-content active" id="tab-doc-bank">
+                    <div class="doc-library-bar">
+                        <div class="doc-search-wrapper">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="doc-search" placeholder="Search by name, date or metadata...">
+                        </div>
+                        <label for="direct-doc-upload" class="clean-upload-btn">
+                            <i class="fa-solid fa-arrow-up-from-bracket"></i> Upload
+                            <input type="file" id="direct-doc-upload" style="display: none;">
+                        </label>
+                    </div>
+
+                    <div class="filter-pills">
+                        <button class="pill active" data-cat="all">All Files</button>
+                        <button class="pill" data-cat="bills">Bills</button>
+                        <button class="pill" data-cat="education">Education</button>
+                        <button class="pill" data-cat="identity">Identity</button>
+                        <button class="pill" data-cat="receipts">Receipts</button>
+                        <button class="pill" data-cat="uncategorized">Uncategorized</button>
+                    </div>
+
+                    <div class="modern-grid" id="documents-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Tab 2: WhatsApp Mock Simulator -->
+                <div class="tools-tab-content" id="tab-whatsapp-sim">
+                    <div class="sandbox-split">
+                        <!-- Premium WhatsApp Phone simulator -->
+                        <div class="smartphone-bezel">
+                            <div class="bezel-notch"></div>
+                            <div class="phone-screen-wrapper">
+                                <div class="wa-chat-header">
+                                    <div class="wa-avatar">🍒</div>
+                                    <div class="wa-user-info">
+                                        <h4>Cherry Agent</h4>
+                                        <p>online</p>
+                                    </div>
+                                </div>
+                                <div class="wa-chat-logs" id="phone-chat-logs">
+                                    <div class="wa-msg system">
+                                        WhatsApp Webhook Sandbox. Send media or texts.
+                                    </div>
+                                </div>
+                                <div class="wa-input-row">
+                                    <label for="wa-file-upload" class="wa-add-btn">
+                                        <i class="fa-solid fa-plus"></i>
+                                        <input type="file" id="wa-file-upload" style="display: none;">
+                                    </label>
+                                    <input type="text" id="wa-text-input" placeholder="Type message...">
+                                    <button id="wa-send-btn"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Webhook Logs Panel -->
+                        <div class="json-logger">
+                            <div class="logger-header">
+                                <span>Webhook Request payload (POST)</span>
+                                <button class="clear-logger-btn" onclick="document.getElementById('webhook-response-display').textContent='Logger cleared.'"><i class="fa-regular fa-trash-can"></i></button>
+                            </div>
+                            <pre id="webhook-response-display">Awaiting incoming hook payloads...</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Workspace explorer -->
+                <div class="tools-tab-content" id="tab-workspace">
+                    <div class="workspace-panel">
+                        <div class="workspace-header">
+                            <span>Project Files</span>
+                            <button id="refresh-workspace-btn" class="workspace-refresh-btn"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                        </div>
+                        <div class="workspace-tree-view" id="workspace-tree">
+                            <!-- Files populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
