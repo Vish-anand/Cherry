@@ -223,6 +223,156 @@ def scrape_web_page(url: str):
 # ==========================================
 
 @register_tool(
+    name="open_url",
+    description="Open a URL or website in the default browser on the user's PC. Use this whenever the user asks to open a website, visit a URL, or launch something like YouTube, Gmail, Google, etc.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "The full URL to open (e.g. 'https://www.youtube.com')."}
+        },
+        "required": ["url"]
+    }
+)
+def open_url(url: str):
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    try:
+        import webbrowser
+        webbrowser.open(url)
+        return f"Opened {url} in the default browser."
+    except Exception as e:
+        return f"Failed to open URL: {str(e)}"
+
+@register_tool(
+    name="play_on_youtube",
+    description="Search YouTube for a video, song, trailer, or any content and automatically open and play the top result in the browser. Use this when the user says 'play X', 'watch X trailer', 'play X song on YouTube', etc.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The search query for YouTube (e.g. 'project hail mary trailer', 'Coldplay Yellow', 'funny cat videos')."}
+        },
+        "required": ["query"]
+    }
+)
+def play_on_youtube(query: str):
+    import urllib.parse
+    script_code = f"""
+import sys
+from playwright.sync_api import sync_playwright
+
+query = {repr(query)}
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=False, channel='chrome')
+    page = browser.new_page()
+    search_url = 'https://www.youtube.com/results?search_query=' + query.replace(' ', '+')
+    page.goto(search_url)
+    page.wait_for_load_state('networkidle', timeout=10000)
+    
+    # Click the first non-ad video result
+    first_video = page.query_selector('ytd-video-renderer a#video-title')
+    if first_video:
+        href = first_video.get_attribute('href')
+        if href:
+            video_url = 'https://www.youtube.com' + href
+            page.goto(video_url)
+            page.wait_for_timeout(2000)
+            print(f'Playing: {{video_url}}')
+            # Keep browser open
+            import time
+            time.sleep(3)
+        else:
+            print('Found video but no href.')
+    else:
+        print('No video found, opening search results.')
+    
+    # Do NOT close browser — leave it open for the user
+    browser.contexts[0].pages[0].bring_to_front()
+    print('Done')
+"""
+    script_path = os.path.join(WORKSPACE_ROOT, "temp_yt_play.py")
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script_code)
+    try:
+        # Run non-blocking — fire and forget so the browser stays open
+        import subprocess, sys
+        subprocess.Popen([sys.executable, script_path])
+        return f"Searching YouTube for '{query}' and opening the top result in Chrome. The video should start playing shortly."
+    except Exception as e:
+        if os.path.exists(script_path):
+            os.remove(script_path)
+        return f"Failed to launch YouTube player: {str(e)}"
+
+@register_tool(
+    name="open_app",
+    description="Launch a Windows application by name (e.g. 'Notepad', 'Calculator', 'Spotify', 'VS Code', 'WhatsApp', 'Task Manager', 'Settings'). Use when the user says 'open X app' or 'launch X'.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "app_name": {"type": "string", "description": "The application name to launch (e.g. 'notepad', 'calc', 'spotify', 'code', 'taskmgr', 'ms-settings:')."}
+        },
+        "required": ["app_name"]
+    }
+)
+def open_app(app_name: str):
+    # Map common friendly names to actual commands
+    app_map = {
+        "notepad": "notepad.exe",
+        "calculator": "calc.exe",
+        "calc": "calc.exe",
+        "paint": "mspaint.exe",
+        "task manager": "taskmgr.exe",
+        "taskmgr": "taskmgr.exe",
+        "settings": "ms-settings:",
+        "file explorer": "explorer.exe",
+        "explorer": "explorer.exe",
+        "spotify": "spotify",
+        "whatsapp": "whatsapp",
+        "vs code": "code",
+        "vscode": "code",
+        "word": "winword",
+        "excel": "excel",
+        "powerpoint": "powerpnt",
+        "chrome": "chrome",
+        "edge": "msedge",
+        "snipping tool": "snippingtool",
+        "camera": "microsoft.windows.camera:",
+        "clock": "ms-clock:",
+        "store": "ms-windows-store:",
+        "photos": "ms-photos:",
+    }
+    cmd = app_map.get(app_name.lower().strip(), app_name)
+    try:
+        if cmd.startswith("ms-") or cmd.endswith(":"):
+            import subprocess
+            subprocess.Popen(["start", cmd], shell=True)
+        else:
+            os.startfile(cmd) if os.path.isabs(cmd) else subprocess.Popen(["start", cmd], shell=True)
+        return f"Launched '{app_name}' successfully."
+    except Exception as e:
+        return f"Failed to launch '{app_name}': {str(e)}"
+
+@register_tool(
+    name="google_search",
+    description="Open a Google search for a query in the default browser. Use when the user says 'Google X', 'search for X', or 'look up X'.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The search term or question to Google."}
+        },
+        "required": ["query"]
+    }
+)
+def google_search(query: str):
+    import webbrowser
+    search_url = "https://www.google.com/search?q=" + urllib.parse.quote(query)
+    try:
+        webbrowser.open(search_url)
+        return f"Opened Google search for: '{query}'"
+    except Exception as e:
+        return f"Failed to open Google search: {str(e)}"
+
+@register_tool(
     name="adjust_system_volume",
     description="Adjust the laptop system volume to an exact percentage (0 to 100).",
     parameters={

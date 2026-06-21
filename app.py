@@ -11,8 +11,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agent.core import run_agent_generator
-from agent.memory import list_documents, search_documents
+from agent.memory import list_documents, search_documents, get_messages, clear_messages, list_conversations, create_conversation, update_conversation, delete_conversation, get_db_connection
 from agent.tools import classify_and_organize_document, WORKSPACE_ROOT, INCOMING_DIR, list_workspace_files
+import agent.computer_use_tools  # Load all computer-use tools into TOOL_REGISTRY
 
 app = FastAPI(title="Cherry Agent Control Hub")
 
@@ -40,7 +41,10 @@ def read_root():
 def chat_endpoint(
     prompt: str = Query(...), 
     conversation_id: str = Query("default"),
-    attachment_rel_path: str = Query(None)
+    attachment_rel_path: str = Query(None),
+    model: str = Query(None),
+    temperature: float = Query(None),
+    system_instruction: str = Query(None)
 ):
     """
     Server-Sent Events endpoint to stream Cherry agent thought steps.
@@ -50,10 +54,98 @@ def chat_endpoint(
         full_attachment_path = os.path.join(WORKSPACE_ROOT, attachment_rel_path)
 
     def event_stream():
-        for step in run_agent_generator(prompt, conversation_id, full_attachment_path):
+        for step in run_agent_generator(
+            prompt, 
+            conversation_id, 
+            full_attachment_path,
+            model=model,
+            temperature=temperature,
+            system_instruction=system_instruction
+        ):
             yield f"data: {json.dumps(step)}\n\n"
             
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.get("/api/chat/history")
+def get_chat_history(conversation_id: str = Query("default")):
+    """
+    Retrieve message history for a conversation.
+    """
+    return get_messages(conversation_id)
+
+@app.delete("/api/chat/history")
+def delete_chat_history(conversation_id: str = Query("default")):
+    """
+    Clear history for a conversation.
+    """
+    clear_messages(conversation_id)
+    return {"status": "success", "message": "History cleared"}
+
+class CreateConversationRequest(BaseModel):
+    id: str
+    title: str
+
+class UpdateConversationRequest(BaseModel):
+    title: str = None
+    pinned: bool = None
+
+@app.get("/api/conversations")
+def get_conversations_list():
+    """
+    Get all conversations.
+    """
+    return list_conversations()
+
+@app.post("/api/conversations")
+def create_new_conversation(req: CreateConversationRequest):
+    """
+    Create a new conversation.
+    """
+    create_conversation(req.id, req.title)
+    return {"status": "success", "id": req.id}
+
+@app.put("/api/conversations/{conversation_id}")
+def update_conv(conversation_id: str, req: UpdateConversationRequest):
+    """
+    Update conversation title or pinned status.
+    """
+    pinned_val = int(req.pinned) if req.pinned is not None else None
+    update_conversation(conversation_id, title=req.title, pinned=pinned_val)
+    return {"status": "success"}
+
+@app.delete("/api/conversations/{conversation_id}")
+def delete_conv(conversation_id: str):
+    """
+    Delete a conversation and all its messages.
+    """
+    delete_conversation(conversation_id)
+    return {"status": "success"}
+
+class ProfileUpdateRequest(BaseModel):
+    name: str
+
+@app.get("/api/profile")
+def get_profile():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+    cursor.execute("SELECT value FROM settings WHERE key = 'user_name'")
+    row = cursor.fetchone()
+    conn.close()
+    name = row["value"] if row else "Vishnu"
+    return {"name": name, "avatar": name[0].upper() if name else "V"}
+
+@app.post("/api/profile")
+def update_profile(req: ProfileUpdateRequest):
+    name = req.name.strip()
+    if name:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('user_name', ?)", (name,))
+        conn.commit()
+        conn.close()
+    return {"status": "success", "name": name}
 
 @app.post("/api/documents/upload")
 async def upload_document(file: UploadFile = File(...)):

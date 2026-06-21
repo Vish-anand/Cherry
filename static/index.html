@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
     <div class="cherry-app">
@@ -19,17 +19,30 @@
                 <h2>Cherry</h2>
                 <div class="status-dot" title="Cherry Engine Active"></div>
             </div>
+
+            <button class="new-chat-btn" id="new-chat-btn">
+                <i class="fa-regular fa-pen-to-square"></i> New chat
+            </button>
             
             <div class="sidebar-menu">
                 <div class="menu-label">Recent Conversations</div>
-                <div class="session-list">
-                    <div class="session-item active">
-                        <i class="fa-regular fa-message"></i>
-                        <span>Default Session</span>
-                    </div>
+                <div class="session-list" id="session-list">
+                    <!-- Populated dynamically via JS -->
                 </div>
             </div>
 
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">V</div>
+                    <div class="user-info">
+                        <h4>Vishnu</h4>
+                        <p>Pro</p>
+                    </div>
+                </div>
+                <button class="settings-btn" id="settings-btn" title="Agent Settings">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
         </aside>
 
         <!-- Main Body Workspace -->
@@ -41,14 +54,14 @@
                         <span>Agent Console</span>
                         <div class="engine-pill">ReAct-V2</div>
                     </div>
-                    <button class="clear-btn" onclick="window.location.reload()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                    <button class="clear-btn" onclick="resetChat()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
                 </div>
                 
                 <div class="chat-feed" id="chat-messages">
                     <div class="msg-bubble system">
                         <div class="msg-avatar">🍒</div>
                         <div class="msg-text">
-                            Hello! I am Cherry. I have access to your local workspace, document vault, web tools, system volume, printer controls, and dynamic browser automation via Playwright. Tell me what to do.
+                            Hello! I am Cherry. How can I help you today?
                         </div>
                     </div>
                 </div>
@@ -162,6 +175,43 @@
             </section>
         </div>
     </div>
-    <script src="script.js"></script>
+
+    <!-- Settings Modal Dialog -->
+    <div class="settings-modal-overlay" id="settings-modal" style="display: none;">
+        <div class="settings-modal-content">
+            <div class="settings-modal-header">
+                <h3><i class="fa-solid fa-gear"></i> Agent Settings</h3>
+                <button class="settings-modal-close" id="settings-close-btn">&times;</button>
+            </div>
+            <div class="settings-modal-body">
+                <div class="settings-field">
+                    <label for="settings-model">Model Name / ID</label>
+                    <input type="text" id="settings-model" placeholder="e.g. gemini-2.5-flash, google/gemini-2.5-pro">
+                    <small>Leave empty to use server default.</small>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-temperature">Temperature: <span id="temp-val-display">0.7</span></label>
+                    <input type="range" id="settings-temperature" min="0.0" max="1.5" step="0.1" value="0.7">
+                    <small>Controls creativity (0.0 is deterministic, 1.5 is highly creative).</small>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-user-name">Your Name</label>
+                    <input type="text" id="settings-user-name" placeholder="e.g. Vikky, Vishnu">
+                    <small>Used to customize greetings and the sidebar profile.</small>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-system-prompt">System Instructions override</label>
+                    <textarea id="settings-system-prompt" rows="6" placeholder="Default instructions will be used if left blank..."></textarea>
+                    <small>Warning: Custom instructions will override core agent behaviors. Keep ReAct formatting details if you wish to use tools.</small>
+                </div>
+            </div>
+            <div class="settings-modal-footer">
+                <button class="modal-btn-secondary" id="settings-cancel-btn">Cancel</button>
+                <button class="modal-btn-primary" id="settings-save-btn">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=4"></script>
 </body>
 </html>

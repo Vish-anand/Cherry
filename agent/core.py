@@ -4,39 +4,121 @@ import re
 import traceback
 from agent.llm import call_llm
 from agent.tools import TOOL_REGISTRY
-from agent.memory import save_message, get_messages
+from agent.memory import save_message, get_messages, get_db_connection
 
-SYSTEM_PROMPT_TEMPLATE = """You are Cherry, a highly advanced autonomous AI personal assistant and developer. You have access to tools to interact with the system, organize documents, search the web, and run browser scripts.
+def auto_rename_conversation_if_needed(conversation_id: str, user_prompt: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM conversations WHERE id = ?", (conversation_id,))
+    row = cursor.fetchone()
+    if row:
+        current_title = row["title"]
+        is_generic = current_title == "New Chat" or current_title == "Default Session" or current_title.startswith("Session ")
+        if is_generic:
+            summary_instruction = "You are a helpful assistant. Summarize the user's request into a concise chat title of 3 to 6 words. Respond ONLY with the title. Do not include quotes, markdown formatting, or any extra text."
+            try:
+                summary_title = call_llm(
+                    prompt=f"Summarize this request: {user_prompt}",
+                    system_instruction=summary_instruction
+                ).strip()
+                summary_title = re.sub(r'^["\']|["\']$', '', summary_title).strip()
+                if len(summary_title) > 40:
+                    summary_title = summary_title[:37] + "..."
+                cursor.execute("UPDATE conversations SET title = ? WHERE id = ?", (summary_title, conversation_id))
+                conn.commit()
+            except Exception as e:
+                print(f"Failed to generate auto-title: {e}")
+    conn.close()
+
+def extract_and_update_username_from_history(conversation_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+    cursor.execute("SELECT value FROM settings WHERE key = 'user_name'")
+    row = cursor.fetchone()
+    current_name = row["value"] if row else None
+    
+    # Only extract if user hasn't explicitly customized it to something else already (or it's Vishnu/None)
+    if not current_name or current_name == "Vishnu":
+        history = get_messages(conversation_id)
+        conversation_text = ""
+        for m in history:
+            conversation_text += f"{m['role'].upper()}: {m['content']}\n"
+        
+        extraction_prompt = (
+            "Analyze the conversation history below and extract the user's name. "
+            "If the user explicitly states their name (e.g. 'call me Vikky', 'my name is Vikky', 'I am Vikky'), "
+            "return ONLY the extracted first name (e.g. 'Vikky'). If no name is mentioned or the name is unclear, "
+            "respond with 'None'. Do not add any punctuation or extra text."
+        )
+        try:
+            extracted = call_llm(
+                prompt=f"{conversation_text}\n\nTask: {extraction_prompt}"
+            ).strip()
+            # Clean outer quotes if any
+            extracted = re.sub(r'^["\']|["\']$', '', extracted).strip()
+            if extracted and extracted != "None" and len(extracted) < 20:
+                name = re.sub(r'[^a-zA-Z]', '', extracted)
+                if name:
+                    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('user_name', ?)", (name,))
+                    conn.commit()
+                    print(f"Automatically extracted and updated username: {name}")
+        except Exception as e:
+            print(f"Failed to automatically extract username: {e}")
+    conn.close()
+
+SYSTEM_PROMPT_TEMPLATE = """You are Cherry, a highly advanced autonomous AI personal assistant and computer-use agent — like Open Interpreter or Anthropic Computer Use. You can directly operate the user's PC, run commands, control apps, manage files, browse the web, and more.
 
 Your loop follows this cycle:
 Thought -> Action -> Action Input -> Observation -> Thought -> ... -> Final Answer
 
-When you need to use a tool, you MUST output it in this exact format (with no extra characters before or after the JSON in Action Input):
-Thought: Describe what you are trying to accomplish and why you are choosing the next tool.
-Action: name_of_tool_to_call
+When you need to use a tool, output it in EXACTLY this format:
+Thought: Describe what you are doing and why.
+Action: tool_name
 Action Input: {{
-  "param_name": "param_value"
+  "param": "value"
 }}
 
-Ensure the Action Input is valid, parseable JSON. Do not surround the Action Input block with markdown code fences (like ```json).
+After the system executes the tool, you receive:
+Observation: [the tool output]
 
-After you yield an Action and Action Input, the system will execute it and provide the result back to you as:
-Observation: The output result of the tool execution.
-
-Once you have all the information required, output your final response:
-Thought: I have solved the task or collected the necessary details.
-Final Answer: Write your detailed final response here.
+When done, output:
+Thought: I have completed the task.
+Final Answer: [your response to the user]
 
 Available Tools:
 {tools_description}
 
-Guidelines:
-1. Workspace: Use workspace tools to inspect and modify local files.
-2. System controls: You can set laptop volume using adjust_system_volume.
-3. Multimodal: To classify and index document uploads or incoming receipts/marklists, call classify_and_organize_document.
-4. Portal Result Check: To check portal results or fill forms behind logins, write a playwright python script and execute it using run_browser_automation.
-5. If a download is requested (like YouTube), use download_youtube_video.
-6. Try to be autonomous and verify your actions. If a script fails, read the output logs, fix the code, and try again.
+KEY CAPABILITIES — use these aggressively:
+
+1. **Shell Commands** (`run_shell_command`): Run ANY PowerShell/CMD command — git, npm, pip, gradle, python scripts, mkdirs, file ops, deploys. This is your most powerful tool.
+
+2. **Screenshot + Vision** (`take_screenshot`): Capture the screen and immediately analyze it with vision AI. Use AFTER launching apps or running builds to see results.
+
+3. **Browser Automation** (`run_browser_automation`): Use Playwright to control Chrome — fill forms, log in, click buttons, scrape data, pay bills, book tickets, automate any website.
+
+4. **YouTube** (`play_on_youtube`): Search and auto-play any video/song/trailer. 
+
+5. **Open URLs / Apps** (`open_url`, `open_app`): Open websites or launch Windows applications.
+
+6. **File System**: `delete_file`, `copy_file`, `move_file`, `download_file`, `zip_folder`, `extract_zip`, `read_workspace_file`, `write_workspace_file`.
+
+7. **Clipboard**: `get_clipboard`, `set_clipboard`.
+
+8. **Process Control**: `list_running_processes`, `kill_process`.
+
+9. **System Info**: `get_system_info`.
+
+10. **Keyboard/Mouse**: `type_text`, `press_key`.
+
+BEHAVIOR GUIDELINES:
+- Be AUTONOMOUS. Try things, check results, fix errors, and try again. Never give up on first failure.
+- After running a build or opening an app, ALWAYS call `take_screenshot` to verify the result.
+- For multi-step tasks (build → screenshot → push to GitHub), chain the tools one by one.
+- For browser tasks (pay bills, book tickets), write a complete Playwright script using `run_browser_automation`.
+- When the user says "push to GitHub", use `run_shell_command` with git commands.
+- When the user says "deploy", determine the appropriate deploy command and run it.
+- Do NOT make up results — always use a tool to actually perform the action.
 """
 
 def get_tools_description():
@@ -74,7 +156,14 @@ def parse_react_response(text: str):
     final_answer = final_answer_match.group(1).strip() if final_answer_match else None
     return thought, action, action_input, final_answer
 
-def run_agent_generator(user_prompt: str, conversation_id: str = "default", attachment_path: str = None):
+def run_agent_generator(
+    user_prompt: str,
+    conversation_id: str = "default",
+    attachment_path: str = None,
+    model: str = None,
+    temperature: float = None,
+    system_instruction: str = None
+):
     """
     Generator function that runs the agent loop and yields steps (for Server-Sent Events / websockets).
     """
@@ -82,8 +171,11 @@ def run_agent_generator(user_prompt: str, conversation_id: str = "default", atta
     history = get_messages(conversation_id)
     
     # 2. Build system instructions
-    tools_desc = get_tools_description()
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(tools_description=tools_desc)
+    if system_instruction and system_instruction.strip():
+        system_prompt = system_instruction
+    else:
+        tools_desc = get_tools_description()
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(tools_description=tools_desc)
     
     # Save the user's initial message
     save_message(conversation_id, "user", user_prompt)
@@ -113,7 +205,9 @@ def run_agent_generator(user_prompt: str, conversation_id: str = "default", atta
             llm_output = call_llm(
                 prompt=prompt,
                 system_instruction=system_prompt,
-                attachment_path=attachment_path if loop_count == 1 else None # Only pass image in first step
+                attachment_path=attachment_path if loop_count == 1 else None, # Only pass image in first step
+                model=model,
+                temperature=temperature
             )
         except Exception as e:
             err_msg = f"LLM Call failed: {str(e)}\n{traceback.format_exc()}"
@@ -152,11 +246,27 @@ def run_agent_generator(user_prompt: str, conversation_id: str = "default", atta
         elif final_answer:
             # We reached the end
             save_message(conversation_id, "assistant", final_answer)
+            try:
+                auto_rename_conversation_if_needed(conversation_id, user_prompt)
+            except Exception as e:
+                print(f"Auto-rename failed: {e}")
+            try:
+                extract_and_update_username_from_history(conversation_id)
+            except Exception as e:
+                print(f"Username extraction failed: {e}")
             yield {"type": "final_answer", "content": final_answer}
             break
         else:
             # Fallback if the LLM output didn't fit ReAct exactly
             save_message(conversation_id, "assistant", llm_output)
+            try:
+                auto_rename_conversation_if_needed(conversation_id, user_prompt)
+            except Exception as e:
+                print(f"Auto-rename failed: {e}")
+            try:
+                extract_and_update_username_from_history(conversation_id)
+            except Exception as e:
+                print(f"Username extraction failed: {e}")
             yield {"type": "final_answer", "content": llm_output}
             break
             

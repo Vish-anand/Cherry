@@ -18,7 +18,14 @@ def get_client_type():
         return "openai"
     return None
 
-def call_llm(prompt: str, system_instruction: str = None, attachment_path: str = None, response_schema: dict = None) -> str:
+def call_llm(
+    prompt: str,
+    system_instruction: str = None,
+    attachment_path: str = None,
+    response_schema: dict = None,
+    model: str = None,
+    temperature: float = None
+) -> str:
     """
     Unified LLM call supporting text, images, and PDFs.
     Returns the string output of the model (or structured JSON).
@@ -50,7 +57,7 @@ def call_llm(prompt: str, system_instruction: str = None, attachment_path: str =
         from google.genai import types
         
         client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = "gemini-2.5-flash"
+        model_name = model if (model and model.strip()) else "gemini-2.5-flash"
         
         contents = []
         if file_bytes and mime_type:
@@ -60,6 +67,9 @@ def call_llm(prompt: str, system_instruction: str = None, attachment_path: str =
         config_args = {}
         if system_instruction:
             config_args["system_instruction"] = system_instruction
+            
+        if temperature is not None:
+            config_args["temperature"] = temperature
             
         if response_schema:
             # We can request JSON output
@@ -79,6 +89,7 @@ def call_llm(prompt: str, system_instruction: str = None, attachment_path: str =
         import openai
         
         client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+        model_name = model if (model and model.strip()) else OPENAI_MODEL
         
         messages = []
         if system_instruction:
@@ -124,6 +135,9 @@ def call_llm(prompt: str, system_instruction: str = None, attachment_path: str =
         # Limit max_tokens to prevent OpenRouter 402 pre-authorization blocks on free accounts
         kwargs["max_tokens"] = 4000
         
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+            
         if response_schema:
             kwargs["response_format"] = {"type": "json_object"}
             # Guide prompt to conform to the schema
@@ -134,7 +148,7 @@ def call_llm(prompt: str, system_instruction: str = None, attachment_path: str =
             })
             
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=model_name,
             messages=messages,
             **kwargs
         )

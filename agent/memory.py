@@ -23,6 +23,12 @@ def init_db():
     )
     """)
     
+    # Try adding the pinned column for compatibility
+    try:
+        cursor.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    
     # Messages table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS messages (
@@ -162,6 +168,53 @@ def list_documents(category: str = None):
             "created_at": r["created_at"]
         })
     return results
+
+def list_conversations():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, title, created_at, COALESCE(pinned, 0) as pinned 
+        FROM conversations 
+        ORDER BY pinned DESC, created_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"id": r["id"], "title": r["title"], "created_at": r["created_at"], "pinned": bool(r["pinned"])} for r in rows]
+
+def create_conversation(conversation_id: str, title: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO conversations (id, title, created_at, pinned) VALUES (?, ?, ?, 0)",
+        (conversation_id, title, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+def update_conversation(conversation_id: str, title: str = None, pinned: int = None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if title is not None:
+        cursor.execute("UPDATE conversations SET title = ? WHERE id = ?", (title, conversation_id))
+    if pinned is not None:
+        cursor.execute("UPDATE conversations SET pinned = ? WHERE id = ?", (pinned, conversation_id))
+    conn.commit()
+    conn.close()
+
+def delete_conversation(conversation_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+    cursor.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+    conn.commit()
+    conn.close()
+
+def clear_messages(conversation_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+    conn.commit()
+    conn.close()
 
 # Auto-initialize DB on import
 init_db()

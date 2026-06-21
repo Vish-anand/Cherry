@@ -1,4 +1,97 @@
 document.addEventListener("DOMContentLoaded", () => {
+    let activeConversationId = localStorage.getItem("activeConversationId") || "default";
+
+    // Agent Settings Modal Logic
+    const settingsBtn = document.getElementById("settings-btn");
+    const settingsModal = document.getElementById("settings-modal");
+    const settingsCloseBtn = document.getElementById("settings-close-btn");
+    const settingsCancelBtn = document.getElementById("settings-cancel-btn");
+    const settingsSaveBtn = document.getElementById("settings-save-btn");
+
+    const modelInput = document.getElementById("settings-model");
+    const tempInput = document.getElementById("settings-temperature");
+    const tempDisplay = document.getElementById("temp-val-display");
+    const userNameInput = document.getElementById("settings-user-name");
+    const systemPromptInput = document.getElementById("settings-system-prompt");
+
+    let currentUserName = "Vishnu";
+
+    async function loadUserProfile() {
+        try {
+            const res = await fetch("/api/profile");
+            const data = await res.json();
+            if (data && data.name) {
+                currentUserName = data.name;
+                const nameHeader = document.querySelector(".user-info h4");
+                const avatarDiv = document.querySelector(".user-avatar");
+                if (nameHeader) nameHeader.textContent = currentUserName;
+                if (avatarDiv) avatarDiv.textContent = currentUserName.charAt(0).toUpperCase();
+            }
+        } catch (err) {
+            console.error("Error loading user profile:", err);
+        }
+    }
+
+    function loadSettingsIntoInputs() {
+        modelInput.value = localStorage.getItem("settings_model") || "";
+        const savedTemp = localStorage.getItem("settings_temperature") || "0.7";
+        tempInput.value = savedTemp;
+        tempDisplay.textContent = savedTemp;
+        systemPromptInput.value = localStorage.getItem("settings_system_prompt") || "";
+        if (userNameInput) {
+            userNameInput.value = currentUserName;
+        }
+    }
+
+    if (settingsBtn && settingsModal) {
+        settingsBtn.addEventListener("click", () => {
+            loadSettingsIntoInputs();
+            settingsModal.style.display = "flex";
+        });
+
+        const closeSettingsModal = () => {
+            settingsModal.style.display = "none";
+        };
+
+        if (settingsCloseBtn) settingsCloseBtn.addEventListener("click", closeSettingsModal);
+        if (settingsCancelBtn) settingsCancelBtn.addEventListener("click", closeSettingsModal);
+
+        settingsModal.addEventListener("click", (e) => {
+            if (e.target === settingsModal) {
+                closeSettingsModal();
+            }
+        });
+
+        if (tempInput && tempDisplay) {
+            tempInput.addEventListener("input", (e) => {
+                tempDisplay.textContent = e.target.value;
+            });
+        }
+
+        if (settingsSaveBtn) {
+            settingsSaveBtn.addEventListener("click", async () => {
+                localStorage.setItem("settings_model", modelInput.value.trim());
+                localStorage.setItem("settings_temperature", tempInput.value);
+                localStorage.setItem("settings_system_prompt", systemPromptInput.value.trim());
+                
+                const newName = userNameInput ? userNameInput.value.trim() : "";
+                if (newName) {
+                    try {
+                        await fetch("/api/profile", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name: newName })
+                        });
+                        await loadUserProfile();
+                    } catch (err) {
+                        console.error("Error saving profile name:", err);
+                    }
+                }
+                closeSettingsModal();
+            });
+        }
+    }
+
     // Navigation Tabs mapping
     const tabBtns = document.querySelectorAll(".tab-trigger");
     const tabContents = document.querySelectorAll(".tools-tab-content");
@@ -90,19 +183,79 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Start SSE stream
         const encodedPrompt = encodeURIComponent(text);
-        const conversationId = "default";
+        const conversationId = activeConversationId;
         let url = `/api/chat?prompt=${encodedPrompt}&conversation_id=${conversationId}`;
         if (attachmentPath) {
             url += `&attachment_rel_path=${encodeURIComponent(attachmentPath)}`;
+        }
+
+        const savedModel = localStorage.getItem("settings_model") || "";
+        const savedTemp = localStorage.getItem("settings_temperature") || "";
+        const savedSystemPrompt = localStorage.getItem("settings_system_prompt") || "";
+
+        if (savedModel) {
+            url += `&model=${encodeURIComponent(savedModel)}`;
+        }
+        if (savedTemp) {
+            url += `&temperature=${encodeURIComponent(savedTemp)}`;
+        }
+        if (savedSystemPrompt) {
+            url += `&system_instruction=${encodeURIComponent(savedSystemPrompt)}`;
         }
 
         if (activeEventSource) {
             activeEventSource.close();
         }
 
-        const stepsContainer = document.createElement("div");
-        stepsContainer.className = "agent-steps-group";
-        chatMessages.appendChild(stepsContainer);
+        // Create thinking indicator
+        const thinkingDiv = document.createElement("div");
+        thinkingDiv.className = "msg-bubble assistant";
+        thinkingDiv.id = "cherry-thinking-indicator";
+        thinkingDiv.innerHTML = `
+            <div class="msg-avatar">🍒</div>
+            <div class="msg-text">
+                <div class="thinking-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(thinkingDiv);
+
+        // ── Single live steps dropdown ─────────────────────────
+        // Created immediately; steps are appended live.
+        // Header updates from "Working…" to summary on final answer.
+        const liveDropdown = document.createElement("div");
+        liveDropdown.className = "steps-dropdown-wrapper";
+
+        const liveIcon  = document.createElement("i");
+        liveIcon.className = "fa-solid fa-circle-notch fa-spin";
+
+        const liveLabel = document.createElement("span");
+        liveLabel.className = "steps-toggle-label";
+        liveLabel.textContent = "Working…";
+
+        const liveChevron = document.createElement("i");
+        liveChevron.className = "fa-solid fa-chevron-down steps-chevron";
+
+        const liveToggle = document.createElement("button");
+        liveToggle.className = "steps-dropdown-toggle working";
+        liveToggle.append(liveIcon, liveLabel, liveChevron);
+
+        const liveBody = document.createElement("div");
+        liveBody.className = "steps-dropdown-body";
+        liveBody.style.display = "none";  // collapsed by default; user taps to open
+
+        liveToggle.addEventListener("click", () => {
+            const isOpen = liveBody.style.display !== "none";
+            liveBody.style.display = isOpen ? "none" : "block";
+            liveToggle.classList.toggle("open", !isOpen);
+        });
+
+        liveDropdown.appendChild(liveToggle);
+        liveDropdown.appendChild(liveBody);
+        chatMessages.insertBefore(liveDropdown, thinkingDiv);
 
         activeEventSource = new EventSource(url);
         
@@ -111,19 +264,52 @@ document.addEventListener("DOMContentLoaded", () => {
             
             if (step.type === "status") {
                 updateLiveStatus(step.content);
+
             } else if (step.type === "thought") {
-                appendStepCard(stepsContainer, "thought", "Thought", step.content);
+                liveLabel.textContent = "Thinking…";
+                appendStepToLiveBody(liveBody, "thought", "Thought", step.content);
+
             } else if (step.type === "action") {
                 const argsStr = JSON.stringify(step.input, null, 2);
-                appendStepCard(stepsContainer, "action", `Action: ${step.tool}`, `Arguments:\n${argsStr}`);
+                liveLabel.textContent = `Running: ${step.tool}`;
+                appendStepToLiveBody(liveBody, "action", `Action: ${step.tool}`, `Arguments:\n${argsStr}`);
+
             } else if (step.type === "observation") {
-                appendStepCard(stepsContainer, "observation", "Observation", step.content);
+                liveLabel.textContent = "Processing result…";
+                appendStepToLiveBody(liveBody, "observation", "Observation", step.content);
+
             } else if (step.type === "final_answer") {
+                thinkingDiv.remove();
+
+                // Convert to summary state
+                const totalSteps   = liveBody.querySelectorAll(".step-card-inner").length;
+                const totalActions = liveBody.querySelectorAll(".step-card-inner.action").length;
+
+                if (totalSteps > 0) {
+                    // Swap spinner for circle-nodes icon
+                    liveIcon.className = "fa-solid fa-circle-nodes";
+                    liveLabel.textContent = totalActions > 0
+                        ? `${totalActions} action${totalActions > 1 ? "s" : ""} taken · ${totalSteps} step${totalSteps > 1 ? "s" : ""}`
+                        : `${totalSteps} reasoning step${totalSteps > 1 ? "s" : ""}`;
+                    liveToggle.classList.remove("working");
+                    // Collapse it after completion
+                    liveBody.style.display = "none";
+                    liveToggle.classList.remove("open");
+                } else {
+                    // No visible steps — remove the dropdown entirely
+                    liveDropdown.remove();
+                }
+
                 appendMessage("assistant", step.content);
                 updateLiveStatus("Cherry is Active");
                 activeEventSource.close();
                 chatMessages.scrollTop = chatMessages.scrollHeight;
+                loadUserProfile();
+                loadConversations();
+
             } else if (step.type === "error") {
+                thinkingDiv.remove();
+                liveDropdown.remove();
                 appendMessage("system", `Engine Error: ${step.content}`);
                 updateLiveStatus("Cherry is Active");
                 activeEventSource.close();
@@ -132,9 +318,12 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         activeEventSource.onerror = () => {
+            thinkingDiv.remove();
+            liveDropdown.remove();
             updateLiveStatus("Cherry is Active");
             activeEventSource.close();
         };
+
     }
 
     sendBtn.addEventListener("click", sendChatMessage);
@@ -176,20 +365,95 @@ document.addEventListener("DOMContentLoaded", () => {
         console.log(`Cherry Status: ${text}`);
     }
 
+    function buildStepsDropdown(steps) {
+        const stepCount = steps.length;
+        const actionCount = steps.filter(s => s.type === "action").length;
+        const label = actionCount > 0
+            ? `${actionCount} action${actionCount > 1 ? 's' : ''} taken · ${stepCount} step${stepCount > 1 ? 's' : ''}`
+            : `${stepCount} reasoning step${stepCount > 1 ? 's' : ''}`;
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "steps-dropdown-wrapper";
+
+        const toggle = document.createElement("button");
+        toggle.className = "steps-dropdown-toggle";
+        toggle.innerHTML = `
+            <i class="fa-solid fa-circle-nodes"></i>
+            <span>${label}</span>
+            <i class="fa-solid fa-chevron-down steps-chevron"></i>
+        `;
+
+        const body = document.createElement("div");
+        body.className = "steps-dropdown-body";
+        body.style.display = "none";
+
+        steps.forEach(step => {
+            const card = document.createElement("div");
+            card.className = `step-card-inner ${step.type}`;
+            const icon = step.type === 'thought' ? 'fa-lightbulb' : step.type === 'action' ? 'fa-gears' : 'fa-list-check';
+            card.innerHTML = `
+                <div class="step-card-header">
+                    <i class="fa-solid ${icon}"></i>
+                    <span>${step.title}</span>
+                </div>
+                <pre class="step-card-body">${escapeHtml(step.content)}</pre>
+            `;
+            body.appendChild(card);
+        });
+
+        toggle.addEventListener("click", () => {
+            const isOpen = body.style.display !== "none";
+            body.style.display = isOpen ? "none" : "block";
+            toggle.classList.toggle("open", !isOpen);
+        });
+
+        wrapper.appendChild(toggle);
+        wrapper.appendChild(body);
+        return wrapper;
+    }
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    // Legacy appendStepCard kept for WhatsApp tab compatibility
     function appendStepCard(container, type, title, content) {
         const card = document.createElement("div");
-        card.className = "react-step";
-        
+        card.className = `step-card-inner ${type}`;
+        const icon = type === 'thought' ? 'fa-lightbulb' : type === 'action' ? 'fa-gears' : 'fa-list-check';
         card.innerHTML = `
-            <div class="step-header ${type}">
-                <i class="fa-solid ${type === 'thought' ? 'fa-lightbulb' : type === 'action' ? 'fa-gears' : 'fa-list-check'}"></i>
+            <div class="step-card-header">
+                <i class="fa-solid ${icon}"></i>
                 <span>${title}</span>
             </div>
-            <div class="step-body">${content}</div>
+            <pre class="step-card-body">${escapeHtml(content)}</pre>
         `;
         container.appendChild(card);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
+
+    // Append a step card to the live dropdown body in real time
+    function appendStepToLiveBody(bodyEl, type, title, content) {
+        const card = document.createElement("div");
+        card.className = `step-card-inner ${type}`;
+        const icon = type === 'thought' ? 'fa-lightbulb' : type === 'action' ? 'fa-gears' : 'fa-list-check';
+        card.innerHTML = `
+            <div class="step-card-header">
+                <i class="fa-solid ${icon}"></i>
+                <span>${title}</span>
+            </div>
+            <pre class="step-card-body">${escapeHtml(content)}</pre>
+        `;
+        bodyEl.appendChild(card);
+        // If body is open, scroll chat to show new step
+        if (bodyEl.style.display !== "none") {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    }
+
 
     // ==========================================
     // DOCUMENT BANK TAB
@@ -445,5 +709,321 @@ document.addEventListener("DOMContentLoaded", () => {
 
     refreshWorkspaceBtn.addEventListener("click", loadWorkspaceTree);
 
+    function getGreetingHtml(name) {
+        const displayName = name || "there";
+        return `
+            <div class="msg-bubble system">
+                <div class="msg-avatar">🍒</div>
+                <div class="msg-text">
+                    Hi ${displayName}! How can I help you today?
+                </div>
+            </div>
+        `;
+    }
+
+    async function loadChatHistory() {
+        chatMessages.innerHTML = "";
+        try {
+            const res = await fetch(`/api/chat/history?conversation_id=${activeConversationId}`);
+            const history = await res.json();
+            if (history && history.length > 0) {
+                history.forEach(msg => {
+                    appendMessage(msg.role, msg.content);
+                });
+            } else {
+                chatMessages.innerHTML = getGreetingHtml(currentUserName);
+            }
+        } catch (err) {
+            console.error("Error loading chat history:", err);
+            chatMessages.innerHTML = getGreetingHtml(currentUserName);
+        }
+    }
+
+    async function resetChat() {
+        if (confirm("Are you sure you want to clear the chat history?")) {
+            try {
+                await fetch(`/api/chat/history?conversation_id=${activeConversationId}`, {
+                    method: "DELETE"
+                });
+                loadChatHistory();
+            } catch (err) {
+                console.error("Error resetting chat:", err);
+            }
+        }
+    }
+    window.resetChat = resetChat;
+
+    const sessionList = document.getElementById("session-list");
+    const newChatBtn = document.getElementById("new-chat-btn");
+
+    async function loadConversations() {
+        try {
+            const res = await fetch("/api/conversations");
+            const conversations = await res.json();
+            
+            if (conversations.length === 0) {
+                await fetch("/api/conversations", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: "default", title: "Default Session" })
+                });
+                activeConversationId = "default";
+                localStorage.setItem("activeConversationId", "default");
+                loadConversations();
+                return;
+            }
+
+            const activeExists = conversations.some(c => c.id === activeConversationId);
+            if (!activeExists) {
+                activeConversationId = conversations[0].id;
+                localStorage.setItem("activeConversationId", activeConversationId);
+            }
+
+            renderConversationList(conversations);
+        } catch (err) {
+            console.error("Error loading conversations:", err);
+        }
+    }
+
+    function showConfirmModal(message, onConfirm) {
+        const overlay = document.createElement("div");
+        overlay.style.position = "fixed";
+        overlay.style.top = "0";
+        overlay.style.left = "0";
+        overlay.style.width = "100vw";
+        overlay.style.height = "100vh";
+        overlay.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
+        overlay.style.backdropFilter = "blur(4px)";
+        overlay.style.display = "flex";
+        overlay.style.alignItems = "center";
+        overlay.style.justifyContent = "center";
+        overlay.style.zIndex = "1000";
+        
+        const modal = document.createElement("div");
+        modal.style.backgroundColor = "var(--bg-panel)";
+        modal.style.border = "1px solid var(--border-color)";
+        modal.style.borderRadius = "12px";
+        modal.style.padding = "1.5rem";
+        modal.style.maxWidth = "400px";
+        modal.style.width = "90%";
+        modal.style.boxShadow = "0 20px 40px rgba(0, 0, 0, 0.6)";
+        modal.style.display = "flex";
+        modal.style.flexDirection = "column";
+        modal.style.gap = "1rem";
+        
+        modal.innerHTML = `
+            <div style="font-size: 0.95rem; line-height: 1.5; color: var(--text-main);">${message}</div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
+                <button id="modal-cancel-btn" style="background: none; border: 1px solid var(--border-color); color: var(--text-muted); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500;">Cancel</button>
+                <button id="modal-confirm-btn" style="background-color: var(--accent-cherry); border: none; color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500;">Delete</button>
+            </div>
+        `;
+        
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        
+        modal.querySelector("#modal-cancel-btn").addEventListener("click", () => {
+            overlay.remove();
+        });
+        
+        modal.querySelector("#modal-confirm-btn").addEventListener("click", () => {
+            overlay.remove();
+            onConfirm();
+        });
+    }
+
+    function renderConversationList(conversations) {
+        sessionList.innerHTML = "";
+        conversations.forEach(conv => {
+            const item = document.createElement("div");
+            item.className = `session-item ${conv.id === activeConversationId ? 'active' : ''}`;
+            item.setAttribute("data-id", conv.id);
+            
+            const pinIndicator = conv.pinned ? ` <i class="fa-solid fa-thumbtack pinned-icon" style="font-size: 0.75rem; margin-left: 0.4rem;"></i>` : "";
+
+            item.innerHTML = `
+                <span class="session-title">${conv.title}${pinIndicator}</span>
+                <div class="session-menu-container">
+                    <button class="session-menu-btn"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                    <div class="session-menu-dropdown">
+                        <button class="menu-action-share"><i class="fa-solid fa-share-nodes"></i> Share conversation</button>
+                        <button class="menu-action-pin"><i class="fa-solid fa-thumbtack"></i> ${conv.pinned ? 'Unpin' : 'Pin'}</button>
+                        <button class="menu-action-rename"><i class="fa-solid fa-pen"></i> Rename</button>
+                        <button class="menu-action-delete"><i class="fa-solid fa-trash"></i> Delete</button>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener("click", (e) => {
+                if (e.target.closest(".session-menu-container")) return;
+                selectConversation(conv.id);
+            });
+
+            const menuContainer = item.querySelector(".session-menu-container");
+            const menuBtn = item.querySelector(".session-menu-btn");
+            
+            menuBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                document.querySelectorAll(".session-menu-container").forEach(c => {
+                    if (c !== menuContainer) c.classList.remove("open");
+                });
+                menuContainer.classList.toggle("open");
+            });
+
+            item.querySelector(".menu-action-share").addEventListener("click", (e) => {
+                e.stopPropagation();
+                menuContainer.classList.remove("open");
+                alert("Share link copied to clipboard!");
+            });
+
+            item.querySelector(".menu-action-rename").addEventListener("click", (e) => {
+                e.stopPropagation();
+                menuContainer.classList.remove("open");
+                
+                const titleSpan = item.querySelector(".session-title");
+                const currentTitle = conv.title;
+                
+                const input = document.createElement("input");
+                input.type = "text";
+                input.className = "session-rename-input";
+                input.value = currentTitle;
+                
+                input.style.width = "100%";
+                input.style.background = "var(--bg-input)";
+                input.style.border = "1px solid var(--accent-cherry)";
+                input.style.color = "var(--text-main)";
+                input.style.borderRadius = "4px";
+                input.style.padding = "0.2rem 0.4rem";
+                input.style.fontSize = "0.85rem";
+                input.style.outline = "none";
+                
+                titleSpan.replaceWith(input);
+                input.focus();
+                input.select();
+                
+                let isSaving = false;
+                
+                async function saveRename() {
+                    if (isSaving) return;
+                    isSaving = true;
+                    const newTitle = input.value.trim();
+                    if (newTitle && newTitle !== currentTitle) {
+                        try {
+                            await fetch(`/api/conversations/${conv.id}`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ title: newTitle })
+                            });
+                            loadConversations();
+                        } catch (err) {
+                            console.error("Error renaming:", err);
+                            input.replaceWith(titleSpan);
+                        }
+                    } else {
+                        input.replaceWith(titleSpan);
+                    }
+                }
+                
+                input.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        saveRename();
+                    } else if (e.key === "Escape") {
+                        isSaving = true;
+                        input.replaceWith(titleSpan);
+                    }
+                });
+                
+                input.addEventListener("blur", () => {
+                    setTimeout(saveRename, 100);
+                });
+            });
+
+            item.querySelector(".menu-action-pin").addEventListener("click", async (e) => {
+                e.stopPropagation();
+                menuContainer.classList.remove("open");
+                try {
+                    await fetch(`/api/conversations/${conv.id}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ pinned: !conv.pinned })
+                    });
+                    loadConversations();
+                } catch (err) {
+                    console.error("Error pinning/unpinning conversation:", err);
+                }
+            });
+
+            item.querySelector(".menu-action-delete").addEventListener("click", (e) => {
+                e.stopPropagation();
+                menuContainer.classList.remove("open");
+                
+                showConfirmModal(
+                    `Are you sure you want to delete the chat "${conv.title}"?`,
+                    async () => {
+                        try {
+                            await fetch(`/api/conversations/${conv.id}`, {
+                                method: "DELETE"
+                            });
+                            if (conv.id === activeConversationId) {
+                                localStorage.removeItem("activeConversationId");
+                            }
+                            loadConversations().then(() => {
+                                selectConversation(activeConversationId);
+                            });
+                        } catch (err) {
+                            console.error("Error deleting conversation:", err);
+                        }
+                    }
+                );
+            });
+
+            sessionList.appendChild(item);
+        });
+    }
+
+    function selectConversation(id) {
+        activeConversationId = id;
+        localStorage.setItem("activeConversationId", id);
+        
+        document.querySelectorAll(".session-item").forEach(item => {
+            if (item.getAttribute("data-id") === id) {
+                item.classList.add("active");
+            } else {
+                item.classList.remove("active");
+            }
+        });
+        
+        loadChatHistory();
+    }
+
+    newChatBtn.addEventListener("click", async () => {
+        const id = "chat_" + Date.now();
+        const title = "New Chat";
+        try {
+            await fetch("/api/conversations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id, title })
+            });
+            activeConversationId = id;
+            localStorage.setItem("activeConversationId", id);
+            await loadConversations();
+            selectConversation(id);
+        } catch (err) {
+            console.error("Error creating new chat:", err);
+        }
+    });
+
+    document.addEventListener("click", () => {
+        document.querySelectorAll(".session-menu-container").forEach(c => {
+            c.classList.remove("open");
+        });
+    });
+
     loadDocuments();
+    loadUserProfile().then(() => {
+        loadConversations().then(() => {
+            loadChatHistory();
+        });
+    });
 });
