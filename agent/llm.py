@@ -7,6 +7,9 @@ load_dotenv()
 
 # We will dynamically import the appropriate library depending on which key is available
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+AWS_BEARER_TOKEN_BEDROCK = os.getenv("AWS_BEARER_TOKEN_BEDROCK")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_BEDROCK_MODEL = os.getenv("AWS_BEDROCK_MODEL", "meta.llama3-1-8b-instruct-v1:0")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "google/gemini-2.5-flash")
@@ -14,6 +17,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "google/gemini-2.5-flash")
 def get_client_type():
     if GEMINI_API_KEY and GEMINI_API_KEY.strip():
         return "gemini"
+    elif AWS_BEARER_TOKEN_BEDROCK and AWS_BEARER_TOKEN_BEDROCK.strip():
+        return "bedrock"
     elif OPENAI_API_KEY and OPENAI_API_KEY.strip():
         return "openai"
     return None
@@ -32,7 +37,7 @@ def call_llm(
     """
     client_type = get_client_type()
     if not client_type:
-        raise ValueError("No valid API keys found in .env (either GEMINI_API_KEY or OPENAI_API_KEY must be set)")
+        raise ValueError("No valid API keys found in .env (either GEMINI_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or OPENAI_API_KEY must be set)")
         
     mime_type = None
     file_bytes = None
@@ -78,12 +83,156 @@ def call_llm(
             
         config = types.GenerateContentConfig(**config_args)
         
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=config
-        )
-        return response.text
+        import time
+        max_retries = 3
+        retry_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                return response.text
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[Gemini Warning] Attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise e
+
+    elif client_type == "bedrock":
+        import httpx
+        
+        # Determine model
+        model_name = model if (model and model.strip()) else AWS_BEDROCK_MODEL
+        
+        # Bedrock Runtime Invoke API URL
+        url = f"https://bedrock-runtime.{AWS_REGION}.amazonaws.com/model/{model_name}/invoke"
+        
+        headers = {
+            "Authorization": f"Bearer {AWS_BEARER_TOKEN_BEDROCK}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        # Prepare payload depending on whether it's Llama or Claude
+        if "llama" in model_name.lower():
+            # Combine system instruction and prompt if available
+            full_prompt = ""
+            if system_instruction:
+                full_prompt += f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|>"
+            full_prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+            
+            payload = {
+                "prompt": full_prompt,
+                "max_gen_len": 2048,
+                "temperature": temperature if temperature is not None else 0.7,
+                "top_p": 0.9
+            }
+        elif "claude" in model_name.lower():
+            messages = []
+            if file_bytes and mime_type:
+                base64_data = base64.b64encode(file_bytes).decode('utf-8')
+                content_list = [
+                    {
+                        "type": "image" if mime_type.startswith("image/") else "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": base64_data
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt
+                    }
+                ]
+                messages.append({"role": "user", "content": content_list})
+            else:
+                messages.append({"role": "user", "content": prompt})
+                
+            payload = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 4096,
+                "messages": messages,
+                "temperature": temperature if temperature is not None else 0.7
+            }
+            if system_instruction:
+                payload["system"] = system_instruction
+        elif "openai" in model_name.lower() or "gpt" in model_name.lower():
+            messages = []
+            if system_instruction:
+                messages.append({"role": "system", "content": system_instruction})
+            
+            user_content = []
+            if file_bytes and mime_type:
+                base64_data = base64.b64encode(file_bytes).decode('utf-8')
+                if mime_type.startswith('image/'):
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}
+                    })
+            user_content.append({"type": "text", "text": prompt})
+            messages.append({"role": "user", "content": user_content})
+            
+            payload = {
+                "messages": messages,
+                "temperature": temperature if temperature is not None else 0.7,
+                "max_tokens": 4096
+            }
+        else:
+            # Generic/Titan fallback format
+            payload = {
+                "inputText": prompt,
+                "textGenerationConfig": {
+                    "maxTokenCount": 2048,
+                    "temperature": temperature if temperature is not None else 0.7
+                }
+            }
+            
+        import time
+        max_retries = 3
+        retry_delay = 1.0
+        res = None
+        for attempt in range(max_retries):
+            try:
+                res = httpx.post(url, headers=headers, json=payload, timeout=60.0)
+                if res.status_code == 200:
+                    break
+                elif res.status_code >= 500 and attempt < max_retries - 1:
+                    print(f"[Bedrock Warning] Attempt {attempt + 1} failed with status {res.status_code}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise ValueError(f"Bedrock call failed (HTTP {res.status_code}): {res.text}")
+            except (httpx.RequestError, httpx.TimeoutException) as req_err:
+                if attempt < max_retries - 1:
+                    print(f"[Bedrock Warning] Attempt {attempt + 1} failed due to network error: {req_err}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise req_err
+                    
+        res_data = res.json()
+        
+        # Parse output depending on model type
+        val = None
+        if "llama" in model_name.lower():
+            val = res_data["generation"]
+        elif "openai" in model_name.lower() or "gpt" in model_name.lower():
+            val = res_data["choices"][0]["message"]["content"]
+        elif "claude" in model_name.lower():
+            val = res_data["content"][0]["text"]
+        else:
+            # General fallback check
+            val = res_data.get("generation") or (res_data.get("results") and res_data["results"][0]["outputText"]) or json.dumps(res_data)
+
+        import re
+        if val:
+            val = re.sub(r'<(reasoning|think)>.*?</\1>', '', val, flags=re.DOTALL).strip()
+        return val
 
     elif client_type == "openai":
         import openai
@@ -147,9 +296,21 @@ def call_llm(
                 "content": f"You MUST respond ONLY with a JSON object conforming exactly to this schema:\n{schema_str}"
             })
             
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            **kwargs
-        )
-        return response.choices[0].message.content
+        import time
+        max_retries = 3
+        retry_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    **kwargs
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[OpenAI Warning] Attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise e

@@ -44,10 +44,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (settingsBtn && settingsModal) {
-        settingsBtn.addEventListener("click", () => {
+        settingsBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
             loadSettingsIntoInputs();
             settingsModal.style.display = "flex";
         });
+
+        const userProfile = document.querySelector(".user-profile");
+        if (userProfile) {
+            userProfile.addEventListener("click", (e) => {
+                loadSettingsIntoInputs();
+                settingsModal.style.display = "flex";
+            });
+        }
+
+        const sidebarFooter = document.querySelector(".sidebar-footer");
+        if (sidebarFooter) {
+            sidebarFooter.addEventListener("click", (e) => {
+                if (e.target.closest("#settings-btn")) return;
+                loadSettingsIntoInputs();
+                settingsModal.style.display = "flex";
+            });
+        }
 
         const closeSettingsModal = () => {
             settingsModal.style.display = "none";
@@ -110,6 +128,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 loadWorkspaceTree();
             } else if (tabId === "doc-bank") {
                 loadDocuments();
+            } else if (tabId === "voice-chat") {
+                loadVoiceConfig();
             }
         });
     });
@@ -188,6 +208,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (attachmentPath) {
             url += `&attachment_rel_path=${encodeURIComponent(attachmentPath)}`;
         }
+        const voiceChatToggle = document.getElementById("voice-chat-toggle");
+        if (voiceChatToggle && voiceChatToggle.checked) {
+            url += `&voice_mode=true`;
+        }
 
         const savedModel = localStorage.getItem("settings_model") || "";
         const savedTemp = localStorage.getItem("settings_temperature") || "";
@@ -264,6 +288,11 @@ document.addEventListener("DOMContentLoaded", () => {
             
             if (step.type === "status") {
                 updateLiveStatus(step.content);
+                if (step.content === "Cherry is speaking...") {
+                    if (typeof startVoiceVisualizer === "function") {
+                        startVoiceVisualizer();
+                    }
+                }
 
             } else if (step.type === "thought") {
                 liveLabel.textContent = "Thinking…";
@@ -280,6 +309,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             } else if (step.type === "final_answer") {
                 thinkingDiv.remove();
+                if (typeof stopVoiceVisualizer === "function") {
+                    stopVoiceVisualizer();
+                }
 
                 // Convert to summary state
                 const totalSteps   = liveBody.querySelectorAll(".step-card-inner").length;
@@ -310,6 +342,9 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (step.type === "error") {
                 thinkingDiv.remove();
                 liveDropdown.remove();
+                if (typeof stopVoiceVisualizer === "function") {
+                    stopVoiceVisualizer();
+                }
                 appendMessage("system", `Engine Error: ${step.content}`);
                 updateLiveStatus("Cherry is Active");
                 activeEventSource.close();
@@ -320,6 +355,9 @@ document.addEventListener("DOMContentLoaded", () => {
         activeEventSource.onerror = () => {
             thinkingDiv.remove();
             liveDropdown.remove();
+            if (typeof stopVoiceVisualizer === "function") {
+                stopVoiceVisualizer();
+            }
             updateLiveStatus("Cherry is Active");
             activeEventSource.close();
         };
@@ -345,10 +383,26 @@ document.addEventListener("DOMContentLoaded", () => {
             attachmentHtml = `<div style="margin-top:0.4rem; padding:0.25rem 0.5rem; background:rgba(255,255,255,0.05); font-size:0.8rem; border-radius:6px;"><i class="fa-solid fa-file"></i> ${filename}</div>`;
         }
 
+        let renderedContent = content;
+        if (typeof marked !== 'undefined') {
+            try {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
+                renderedContent = marked.parse(content);
+            } catch (e) {
+                console.error("Failed to parse markdown:", e);
+                renderedContent = `<div>${content.replace(/\n/g, '<br>')}</div>`;
+            }
+        } else {
+            renderedContent = `<div>${content.replace(/\n/g, '<br>')}</div>`;
+        }
+
         msgDiv.innerHTML = `
             <div class="msg-avatar">${avatar}</div>
             <div class="msg-text">
-                <div>${content.replace(/\n/g, '<br>')}</div>
+                <div class="markdown-body">${renderedContent}</div>
                 ${attachmentHtml}
             </div>
         `;
@@ -1014,11 +1068,180 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // ==========================================
+    // WHATSAPP CONNECTION BRIDGE CONTROL PANEL
+    // ==========================================
+    const waStatusText = document.getElementById("wa-status-text");
+    const waQrContainer = document.getElementById("wa-qr-container");
+    const waQrImg = document.getElementById("wa-qr-img");
+    const waStartBtn = document.getElementById("wa-start-btn");
+    const waStopBtn = document.getElementById("wa-stop-btn");
+    let waPollInterval = null;
+
+    async function checkWhatsappStatus() {
+        try {
+            const res = await fetch("/api/whatsapp/status");
+            const data = await res.json();
+
+            if (data.running) {
+                waStartBtn.style.display = "none";
+                waStopBtn.style.display = "inline-block";
+                
+                if (data.status === "scanning") {
+                    if (data.qr) {
+                        waStatusText.innerHTML = 'Status: <span style="color: #ff9f0a; font-weight: bold;">Scan QR Code Below 📱</span>';
+                        waQrImg.src = data.qr;
+                        waQrContainer.style.display = "flex";
+                    } else {
+                        waQrContainer.style.display = "none";
+                        waStatusText.innerHTML = 'Status: <span style="color: #ff9f0a;">Starting WhatsApp Client...</span>';
+                    }
+                } else if (data.status === "connected") {
+                    waStatusText.innerHTML = 'Status: <span style="color: #25d366; font-weight: bold;">Connected & Active ✅</span>';
+                    waQrContainer.style.display = "none";
+                }
+            } else {
+                waStatusText.innerHTML = 'Status: <span style="color: var(--text-muted);">Disconnected ❌</span>';
+                waQrContainer.style.display = "none";
+                waStartBtn.style.display = "inline-block";
+                waStopBtn.style.display = "none";
+            }
+        } catch (err) {
+            console.error("Error fetching WhatsApp status:", err);
+        }
+    }
+
+    if (waStartBtn && waStopBtn) {
+        waStartBtn.addEventListener("click", async () => {
+            waStatusText.innerHTML = 'Status: <span style="color: #ff9f0a;">Initializing...</span>';
+            waStartBtn.disabled = true;
+            try {
+                await fetch("/api/whatsapp/start", { method: "POST" });
+                setTimeout(checkWhatsappStatus, 500);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                waStartBtn.disabled = false;
+            }
+        });
+
+        waStopBtn.addEventListener("click", async () => {
+            waStatusText.innerHTML = 'Status: <span style="color: var(--text-muted);">Stopping...</span>';
+            waStopBtn.disabled = true;
+            try {
+                await fetch("/api/whatsapp/stop", { method: "POST" });
+                setTimeout(checkWhatsappStatus, 500);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                waStopBtn.disabled = false;
+            }
+        });
+
+        // Poll status every 2 seconds while the settings modal is open
+        const observer = new MutationObserver(() => {
+            if (settingsModal.style.display === "flex") {
+                checkWhatsappStatus();
+                if (!waPollInterval) {
+                    waPollInterval = setInterval(checkWhatsappStatus, 2000);
+                }
+            } else {
+                if (waPollInterval) {
+                    clearInterval(waPollInterval);
+                    waPollInterval = null;
+                }
+            }
+        });
+        observer.observe(settingsModal, { attributes: true, attributeFilter: ["style"] });
+    }
+
     document.addEventListener("click", () => {
         document.querySelectorAll(".session-menu-container").forEach(c => {
             c.classList.remove("open");
         });
     });
+
+    // ==========================================
+    // PANEL COLLAPSE TOGGLES
+    // ==========================================
+    const cherryApp      = document.querySelector(".cherry-app");
+    const mainBody       = document.querySelector(".main-body");
+    const sidebarBtn     = document.getElementById("sidebar-toggle-btn");
+    const toolsBtn       = document.getElementById("tools-toggle-btn");
+    const toolsSection   = document.getElementById("tools-section");
+    const resizeHandle   = document.getElementById("resize-handle");
+
+    function setSidebarCollapsed(collapsed) {
+        cherryApp.classList.toggle("sidebar-collapsed", collapsed);
+        if (sidebarBtn) sidebarBtn.classList.toggle("panel-hidden", collapsed);
+        localStorage.setItem("sidebar_collapsed", collapsed ? "1" : "0");
+    }
+
+    function setToolsCollapsed(collapsed) {
+        mainBody.classList.toggle("tools-collapsed", collapsed);
+        if (toolsBtn) toolsBtn.classList.toggle("panel-hidden", collapsed);
+        localStorage.setItem("tools_collapsed", collapsed ? "1" : "0");
+    }
+
+    // Restore persisted states
+    setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "1");
+    setToolsCollapsed(localStorage.getItem("tools_collapsed") === "1");
+
+    // Restore persisted tools width
+    const savedToolsWidth = localStorage.getItem("tools_width");
+    if (savedToolsWidth && toolsSection) {
+        toolsSection.style.flex = `0 0 ${savedToolsWidth}px`;
+    }
+
+    if (sidebarBtn) {
+        sidebarBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setSidebarCollapsed(!cherryApp.classList.contains("sidebar-collapsed"));
+        });
+    }
+
+    if (toolsBtn) {
+        toolsBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setToolsCollapsed(!mainBody.classList.contains("tools-collapsed"));
+        });
+    }
+
+    // ── Drag-to-resize the tools panel ──────────────────────
+    if (resizeHandle && toolsSection) {
+        let isResizing  = false;
+        let startX      = 0;
+        let startWidth  = 0;
+
+        resizeHandle.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            isResizing = true;
+            startX     = e.clientX;
+            startWidth = toolsSection.offsetWidth;
+            resizeHandle.classList.add("dragging");
+            document.body.style.cursor     = "col-resize";
+            document.body.style.userSelect = "none";
+        });
+
+        document.addEventListener("mousemove", (e) => {
+            if (!isResizing) return;
+            const dx       = startX - e.clientX;          // dragging left → tools grows
+            const minW     = 200;
+            const maxW     = window.innerWidth * 0.68;
+            const newWidth = Math.max(minW, Math.min(maxW, startWidth + dx));
+            toolsSection.style.flex = `0 0 ${newWidth}px`;
+            localStorage.setItem("tools_width", newWidth);
+        });
+
+        document.addEventListener("mouseup", () => {
+            if (isResizing) {
+                isResizing = false;
+                resizeHandle.classList.remove("dragging");
+                document.body.style.cursor     = "";
+                document.body.style.userSelect = "";
+            }
+        });
+    }
 
     loadDocuments();
     loadUserProfile().then(() => {
@@ -1026,4 +1249,113 @@ document.addEventListener("DOMContentLoaded", () => {
             loadChatHistory();
         });
     });
+
+    // === VOICE CHAT LOGIC ===
+    const voiceStatusText = document.getElementById("voice-status-text");
+    const voiceStatusIndicator = document.getElementById("voice-status-indicator");
+    const voiceApiUrlInput = document.getElementById("voice-api-url-input");
+    const saveVoiceUrlBtn = document.getElementById("save-voice-url-btn");
+    const voiceChatToggle = document.getElementById("voice-chat-toggle");
+    const voiceActingLabel = document.getElementById("voice-acting-label");
+    const voiceActingSub = document.getElementById("voice-acting-sub");
+    const waveBars = document.querySelectorAll(".wave-bar");
+
+    async function loadVoiceConfig() {
+        try {
+            const res = await fetch("/api/voice/config");
+            const data = await res.json();
+            if (data && data.voice_api_url) {
+                voiceApiUrlInput.value = data.voice_api_url;
+                if (voiceStatusText) voiceStatusText.textContent = "Ready";
+                if (voiceStatusIndicator) {
+                    voiceStatusIndicator.style.background = "#10b981"; // green
+                    voiceStatusIndicator.style.boxShadow = "0 0 8px #10b981";
+                }
+            }
+        } catch (err) {
+            console.error("Error loading voice config:", err);
+            if (voiceStatusText) voiceStatusText.textContent = "Unreachable";
+            if (voiceStatusIndicator) {
+                voiceStatusIndicator.style.background = "#ef4444"; // red
+                voiceStatusIndicator.style.boxShadow = "0 0 8px #ef4444";
+            }
+        }
+    }
+
+    if (saveVoiceUrlBtn) {
+        saveVoiceUrlBtn.addEventListener("click", async () => {
+            const voice_api_url = voiceApiUrlInput.value.trim();
+            if (!voice_api_url) return;
+            
+            saveVoiceUrlBtn.textContent = "Saving...";
+            saveVoiceUrlBtn.style.opacity = "0.7";
+            try {
+                const res = await fetch("/api/voice/config", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ voice_api_url })
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    saveVoiceUrlBtn.textContent = "Saved!";
+                    if (voiceStatusText) voiceStatusText.textContent = "Configured";
+                    if (voiceStatusIndicator) {
+                        voiceStatusIndicator.style.background = "#10b981";
+                        voiceStatusIndicator.style.boxShadow = "0 0 8px #10b981";
+                    }
+                } else {
+                    alert("Error saving: " + data.message);
+                }
+            } catch (err) {
+                console.error("Error saving voice config:", err);
+                alert("Failed to save voice configuration");
+            } finally {
+                setTimeout(() => {
+                    saveVoiceUrlBtn.textContent = "Save";
+                    saveVoiceUrlBtn.style.opacity = "1";
+                }, 1500);
+            }
+        });
+    }
+
+    function startVoiceVisualizer() {
+        if (voiceActingLabel) voiceActingLabel.textContent = "Cherry is Speaking";
+        if (voiceActingSub) voiceActingSub.textContent = "Audio stream active, playing output speaker audio...";
+        waveBars.forEach(bar => {
+            bar.classList.add("speaking");
+        });
+        if (voiceStatusText) voiceStatusText.textContent = "Speaking";
+        if (voiceStatusIndicator) {
+            voiceStatusIndicator.style.background = "#3b82f6"; // blue
+            voiceStatusIndicator.style.boxShadow = "0 0 8px #3b82f6";
+        }
+    }
+
+    function stopVoiceVisualizer() {
+        if (voiceActingLabel) voiceActingLabel.textContent = "Visualizer Idle";
+        if (voiceActingSub) voiceActingSub.textContent = "Activate Voice Mode or send a query to test speech response.";
+        waveBars.forEach(bar => {
+            bar.classList.remove("speaking");
+        });
+        if (voiceStatusText) voiceStatusText.textContent = "Ready";
+        if (voiceStatusIndicator) {
+            voiceStatusIndicator.style.background = "#10b981"; // green
+            voiceStatusIndicator.style.boxShadow = "0 0 8px #10b981";
+        }
+    }
+
+    // Persist voice toggle state
+    if (voiceChatToggle) {
+        voiceChatToggle.checked = localStorage.getItem("voice_mode_enabled") === "true";
+        voiceChatToggle.addEventListener("change", (e) => {
+            localStorage.setItem("voice_mode_enabled", e.target.checked);
+        });
+    }
+
+    window.loadVoiceConfig = loadVoiceConfig;
+    window.startVoiceVisualizer = startVoiceVisualizer;
+    window.stopVoiceVisualizer = stopVoiceVisualizer;
+    
+    // Auto-load voice config on page load
+    loadVoiceConfig();
 });

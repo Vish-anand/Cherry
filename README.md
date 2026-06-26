@@ -83,4 +83,4 @@ python app.py
 
 ### 8. Access the Dashboard
 Open your web browser and navigate to:
-👉 **`http://localhost:8000/static/index.html`**
+👉 **`http://localhost:8001/static/index.html`**

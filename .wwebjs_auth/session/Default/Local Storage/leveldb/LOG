@@ -1,0 +1,12 @@
+2026/06/22-12:56:29.365 6894 Reusing MANIFEST C:\Users\Admin\Desktop\Cherry\.wwebjs_auth\session\Default\Local Storage\leveldb/MANIFEST-000001
+2026/06/22-12:56:29.369 6894 Recovering log #4
+2026/06/22-12:56:29.371 6894 Reusing old log C:\Users\Admin\Desktop\Cherry\.wwebjs_auth\session\Default\Local Storage\leveldb/000004.log 
+2026/06/22-12:57:29.387 5ae0 Level-0 table #8: started
+2026/06/22-12:57:29.395 5ae0 Level-0 table #8: 13755 bytes OK
+2026/06/22-12:57:29.398 5ae0 Delete type=0 #4
+2026/06/22-14:34:31.030 6894 Level-0 table #10: started
+2026/06/22-14:34:31.037 6894 Level-0 table #10: 13187 bytes OK
+2026/06/22-14:34:31.039 6894 Delete type=0 #7
+2026/06/22-16:16:49.357 5ae0 Level-0 table #12: started
+2026/06/22-16:16:49.364 5ae0 Level-0 table #12: 13612 bytes OK
+2026/06/22-16:16:49.368 5ae0 Delete type=0 #9

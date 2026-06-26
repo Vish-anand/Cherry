@@ -67,57 +67,80 @@ def extract_and_update_username_from_history(conversation_id: str):
             print(f"Failed to automatically extract username: {e}")
     conn.close()
 
-SYSTEM_PROMPT_TEMPLATE = """You are Cherry, a highly advanced autonomous AI personal assistant and computer-use agent — like Open Interpreter or Anthropic Computer Use. You can directly operate the user's PC, run commands, control apps, manage files, browse the web, and more.
+SYSTEM_PROMPT_TEMPLATE = """You are Cherry — a highly advanced, private, autonomous AI personal assistant and agentic software engineer built exclusively for your user. You are Cherry, period.
 
-Your loop follows this cycle:
-Thought -> Action -> Action Input -> Observation -> Thought -> ... -> Final Answer
+═══════════════════════════════════════════════
+IDENTITY RULES — NEVER BREAK THESE
+═══════════════════════════════════════════════
+1. NEVER say "I'm ChatGPT", "I'm an OpenAI model", "I'm Claude", "I'm Gemini", "As an AI language model made by…", or anything that reveals the underlying model.
+2. If asked who you are: respond "I'm Cherry, your personal AI assistant."
+3. If asked what model powers you: say "I'm Cherry — that's all you need to know! 😊" and redirect to being helpful.
+4. You have a warm, friendly, slightly witty personality. Speak naturally, like a smart friend — not like a corporate chatbot.
 
-When you need to use a tool, output it in EXACTLY this format:
-Thought: Describe what you are doing and why.
+═══════════════════════════════════════════════
+SOFTWARE ENGINEERING & CODING RULES
+═══════════════════════════════════════════════
+1. NO PLACEHOLDERS: Always write complete, production-ready, fully functional code files. Never use comments like "// TODO", "// Implement here", or truncate files with "... rest of code here ...".
+2. RESOLVE ISSUES AUTONOMOUSLY: If a command fails or a file isn't found, do not stop to ask the user. Inspect the error output, find the root cause, and correct it (e.g., install missing packages, fix syntax errors, adjust paths).
+3. WRITE ALL FILES: If a task requires creating or modifying multiple files, do them all step-by-step in the same agent loop. Do not stop halfway and tell the user to finish it.
+4. VERIFY YOUR WORK: After writing code or initializing a project, run compilation, formatting, or test commands (e.g., npm run build, python script.py) and take screenshots of any output interface using `take_screenshot` to verify everything works.
+5. PLAN BEFORE CODING: For complex tasks, write down your implementation plan in your first Thought, then execute it.
+
+═══════════════════════════════════════════════
+FORMATTING RULES
+═══════════════════════════════════════════════
+- For short, conversational replies → plain natural sentences. NO `##` headers, no excessive bullet points.
+- Only use markdown headers (##, ###) when writing long structured documents, guides, or comparisons that genuinely benefit from it.
+- For code → always use fenced code blocks (```language).
+- For lists of items → bullet points are fine.
+- Never pad a reply with unnecessary sections just to look thorough.
+
+═══════════════════════════════════════════════
+AGENT LOOP — ReAct Pattern
+═══════════════════════════════════════════════
+Your reasoning loop:
+Thought → Action → Action Input → Observation → Thought → … → Final Answer
+
+You MUST strictly follow this pattern. Every response must contain either:
+- A Thought followed by an Action and Action Input.
+- A Thought followed by a Final Answer.
+
+Do not write text outside of this pattern. Do not ask for user permission between steps — just perform the actions autonomously.
+
+When using a tool, output EXACTLY this format:
+Thought: What you are doing and why.
 Action: tool_name
 Action Input: {{
   "param": "value"
 }}
 
-After the system executes the tool, you receive:
-Observation: [the tool output]
+After the tool runs you receive:
+Observation: [tool output]
 
-When done, output:
+When done:
 Thought: I have completed the task.
-Final Answer: [your response to the user]
+Final Answer: [your response to the user summarizing the completed work]
 
 Available Tools:
 {tools_description}
 
-KEY CAPABILITIES — use these aggressively:
-
-1. **Shell Commands** (`run_shell_command`): Run ANY PowerShell/CMD command — git, npm, pip, gradle, python scripts, mkdirs, file ops, deploys. This is your most powerful tool.
-
-2. **Screenshot + Vision** (`take_screenshot`): Capture the screen and immediately analyze it with vision AI. Use AFTER launching apps or running builds to see results.
-
-3. **Browser Automation** (`run_browser_automation`): Use Playwright to control Chrome — fill forms, log in, click buttons, scrape data, pay bills, book tickets, automate any website.
-
-4. **YouTube** (`play_on_youtube`): Search and auto-play any video/song/trailer. 
-
-5. **Open URLs / Apps** (`open_url`, `open_app`): Open websites or launch Windows applications.
-
+═══════════════════════════════════════════════
+CAPABILITIES — use these aggressively
+═══════════════════════════════════════════════
+1. **Shell Commands** (`run_shell_command`): Run ANY PowerShell/CMD command — git, npm, pip, gradle, python scripts, mkdirs, file ops, deploys.
+2. **Screenshot + Vision** (`take_screenshot`): Capture the screen and analyze it with vision AI.
+3. **Browser Automation** (`run_browser_automation`): Playwright-controlled Chrome — fill forms, scrape, automate.
+4. **YouTube** (`play_on_youtube`): Search and auto-play any video/song.
+5. **Open URLs / Apps** (`open_url`, `open_app`): Open websites or Windows apps.
 6. **File System**: `delete_file`, `copy_file`, `move_file`, `download_file`, `zip_folder`, `extract_zip`, `read_workspace_file`, `write_workspace_file`.
-
 7. **Clipboard**: `get_clipboard`, `set_clipboard`.
-
 8. **Process Control**: `list_running_processes`, `kill_process`.
-
 9. **System Info**: `get_system_info`.
-
 10. **Keyboard/Mouse**: `type_text`, `press_key`.
 
-BEHAVIOR GUIDELINES:
-- Be AUTONOMOUS. Try things, check results, fix errors, and try again. Never give up on first failure.
+BEHAVIOUR:
+- Be AUTONOMOUS. Try, check results, fix errors, and retry. Never give up on first failure.
 - After running a build or opening an app, ALWAYS call `take_screenshot` to verify the result.
-- For multi-step tasks (build → screenshot → push to GitHub), chain the tools one by one.
-- For browser tasks (pay bills, book tickets), write a complete Playwright script using `run_browser_automation`.
-- When the user says "push to GitHub", use `run_shell_command` with git commands.
-- When the user says "deploy", determine the appropriate deploy command and run it.
 - Do NOT make up results — always use a tool to actually perform the action.
 """
 
@@ -127,42 +150,75 @@ def get_tools_description():
         desc_list.append(f"- **{name}**: {tool['description']}\n  Parameters: {json.dumps(tool['parameters'])}")
     return "\n".join(desc_list)
 
+# def parse_react_response(text: str):
+#     """
+#     Parses LLM output to find Thought, Action, Action Input, and Final Answer.
+#     """
+#     thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)", text, re.DOTALL)
+#     action_match = re.search(r"Action:\s*(\w+)", text)
+#     action_input_match = re.search(r"Action Input:\s*(\{.*?\})", text, re.DOTALL)
+#     final_answer_match = re.search(r"Final Answer:\s*(.*)", text, re.DOTALL)
+    
+#     thought = thought_match.group(1).strip() if thought_match else ""
+#     action = action_match.group(1).strip() if action_match else None
+#     action_input = None
+
 def parse_react_response(text: str):
     """
-    Parses LLM output to find Thought, Action, Action Input, and Final Answer.
+    Robustly parses LLM output to find Thought, Action, Action Input, and Final Answer.
+    Handles case variations and markdown blocks introduced by local models.
     """
-    thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)", text, re.DOTALL)
-    action_match = re.search(r"Action:\s*(\w+)", text)
-    action_input_match = re.search(r"Action Input:\s*(\{.*?\})", text, re.DOTALL)
-    final_answer_match = re.search(r"Final Answer:\s*(.*)", text, re.DOTALL)
-    
-    thought = thought_match.group(1).strip() if thought_match else ""
-    action = action_match.group(1).strip() if action_match else None
+    # 1. Initialize variables upfront to prevent UnboundLocalError
+    thought = ""
+    action = None
     action_input = None
+    final_answer = None
+
+    # 2. Case-insensitive matching for Thought, Action, and Final Answer
+    thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|Action Input:|Final Answer:|$)", text, re.DOTALL | re.IGNORECASE)
+    action_match = re.search(r"Action:\s*(\w+)", text, re.IGNORECASE)
+    action_input_match = re.search(r"Action Input:\s*(\{.*?\})", text, re.DOTALL | re.IGNORECASE)
+    final_answer_match = re.search(r"Final Answer:\s*(.*)", text, re.DOTALL | re.IGNORECASE)
     
+    # Fallback if Action Input is wrapped inside a ```json ``` markdown code block
+    if not action_input_match:
+        action_input_match = re.search(r"Action Input:\s*```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+
+    # 3. Extract the matched text blocks safely
+    if thought_match:
+        thought = thought_match.group(1).strip()
+    if action_match:
+        action = action_match.group(1).strip()
+        
     if action_input_match:
         try:
             action_input = json.loads(action_input_match.group(1).strip())
         except Exception:
-            # Try cleaning common markdown formatting
+            # Try cleaning common markdown formatting manually
             cleaned = action_input_match.group(1).strip()
-            cleaned = re.sub(r"^```json\s*", "", cleaned)
+            cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
             cleaned = re.sub(r"\s*```$", "", cleaned)
             try:
                 action_input = json.loads(cleaned)
             except Exception:
                 pass
                 
-    final_answer = final_answer_match.group(1).strip() if final_answer_match else None
+    if final_answer_match:
+        final_answer = final_answer_match.group(1).strip()
+        
+    # 4. Fallback: If no explicit Action or Final Answer string matched, treat whole response as text
+    if not action and not final_answer and text.strip():
+        final_answer = text.strip()
+        
     return thought, action, action_input, final_answer
-
 def run_agent_generator(
     user_prompt: str,
     conversation_id: str = "default",
     attachment_path: str = None,
     model: str = None,
     temperature: float = None,
-    system_instruction: str = None
+    system_instruction: str = None,
+    voice_mode: bool = False
 ):
     """
     Generator function that runs the agent loop and yields steps (for Server-Sent Events / websockets).
@@ -190,7 +246,7 @@ def run_agent_generator(
         context += f"[Attachment received: {os.path.basename(attachment_path)}]\n"
         
     loop_count = 0
-    max_loops = 10
+    max_loops = 20
     
     # Yield starting run state
     yield {"type": "status", "content": "Initializing Cherry agent engine..."}
@@ -246,27 +302,43 @@ def run_agent_generator(
         elif final_answer:
             # We reached the end
             save_message(conversation_id, "assistant", final_answer)
-            try:
-                auto_rename_conversation_if_needed(conversation_id, user_prompt)
-            except Exception as e:
-                print(f"Auto-rename failed: {e}")
-            try:
-                extract_and_update_username_from_history(conversation_id)
-            except Exception as e:
-                print(f"Username extraction failed: {e}")
+            if voice_mode:
+                yield {"type": "status", "content": "Cherry is speaking..."}
+                try:
+                    import voice_tool
+                    voice_tool.speak_text(final_answer)
+                except Exception as e:
+                    print(f"[Voice Warning] Failed to generate or play voice response: {e}")
+            # Disabled to prevent hitting free Gemini API rate limits (15 RPM)
+            # try:
+            #     auto_rename_conversation_if_needed(conversation_id, user_prompt)
+            # except Exception as e:
+            #     print(f"Auto-rename failed: {e}")
+            # try:
+            #     extract_and_update_username_from_history(conversation_id)
+            # except Exception as e:
+            #     print(f"Username extraction failed: {e}")
             yield {"type": "final_answer", "content": final_answer}
             break
         else:
             # Fallback if the LLM output didn't fit ReAct exactly
             save_message(conversation_id, "assistant", llm_output)
-            try:
-                auto_rename_conversation_if_needed(conversation_id, user_prompt)
-            except Exception as e:
-                print(f"Auto-rename failed: {e}")
-            try:
-                extract_and_update_username_from_history(conversation_id)
-            except Exception as e:
-                print(f"Username extraction failed: {e}")
+            if voice_mode:
+                yield {"type": "status", "content": "Cherry is speaking..."}
+                try:
+                    import voice_tool
+                    voice_tool.speak_text(llm_output)
+                except Exception as e:
+                    print(f"[Voice Warning] Failed to generate or play voice response: {e}")
+            # Disabled to prevent hitting free Gemini API rate limits (15 RPM)
+            # try:
+            #     auto_rename_conversation_if_needed(conversation_id, user_prompt)
+            # except Exception as e:
+            #     print(f"Auto-rename failed: {e}")
+            # try:
+            #     extract_and_update_username_from_history(conversation_id)
+            # except Exception as e:
+            #     print(f"Username extraction failed: {e}")
             yield {"type": "final_answer", "content": llm_output}
             break
             

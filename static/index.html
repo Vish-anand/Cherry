@@ -8,12 +8,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
     <div class="cherry-app">
         <!-- Sidebar: Chat Control & System Info -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">
                 <div class="brand-logo">🍒</div>
                 <h2>Cherry</h2>
@@ -47,14 +47,35 @@
 
         <!-- Main Body Workspace -->
         <div class="main-body">
-            <!-- Left Side: Refined Chat Console -->
+            <!-- Left Side: Chat Console -->
             <section class="chat-section">
                 <div class="chat-header">
+                    <div class="chat-header-left">
+                        <!-- Sidebar toggle — ALWAYS visible -->
+                        <button class="panel-toggle-btn" id="sidebar-toggle-btn" title="Toggle sidebar">
+                            <i class="fa-solid fa-bars"></i>
+                        </button>
+                        <!-- Cherry brand — only visible when sidebar is hidden -->
+                        <div class="cherry-brand-header">
+                            <span class="cherry-brand-icon">🍒</span>
+                            <span class="cherry-brand-name">Cherry</span>
+                        </div>
+                    </div>
+
                     <div class="chat-title">
                         <span>Agent Console</span>
                         <div class="engine-pill">ReAct-V2</div>
                     </div>
-                    <button class="clear-btn" onclick="resetChat()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+
+                    <div class="chat-header-actions">
+                        <button class="clear-btn" onclick="resetChat()">
+                            <i class="fa-solid fa-rotate-left"></i> Reset
+                        </button>
+                        <!-- Tools panel toggle — ALWAYS visible in header -->
+                        <button class="panel-toggle-btn" id="tools-toggle-btn" title="Toggle panel">
+                            <i class="fa-solid fa-table-columns"></i>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="chat-feed" id="chat-messages">
@@ -84,12 +105,18 @@
                 </div>
             </section>
 
+            <!-- Drag resize handle between chat & tools -->
+            <div class="resize-handle" id="resize-handle">
+                <div class="resize-handle-bar"></div>
+            </div>
+
             <!-- Right Side: Secondary Interface Tabs -->
-            <section class="tools-section">
+            <section class="tools-section" id="tools-section">
                 <nav class="tools-tabs">
                     <button class="tab-trigger active" data-tab="doc-bank">Document Library</button>
                     <button class="tab-trigger" data-tab="whatsapp-sim">WhatsApp Sandbox</button>
                     <button class="tab-trigger" data-tab="workspace">Files</button>
+                    <button class="tab-trigger" data-tab="voice-chat">Voice Chat</button>
                 </nav>
 
                 <!-- Tab 1: Document Bank -->
@@ -172,6 +199,64 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Tab 4: Voice Chat Control Panel -->
+                <div class="tools-tab-content" id="tab-voice-chat">
+                    <div class="voice-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 20px; height: 100%; box-sizing: border-box; overflow-y: auto;">
+                        <div class="voice-header" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 15px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 1.5rem;">🎙️</span>
+                                <h3 style="margin: 0; font-weight: 600;">Voice Control Center</h3>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="voice-status-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a1a1aa; display: inline-block;"></span>
+                                <span id="voice-status-text" style="font-size: 0.85rem; color: var(--text-muted);">Ready</span>
+                            </div>
+                        </div>
+
+                        <!-- Main Speech Toggle -->
+                        <div class="voice-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 15px;">
+                            <div>
+                                <h4 style="margin: 0 0 5px 0; font-weight: 500;">Enable voice synthesis (TTS)</h4>
+                                <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">When active, Cherry will speak all final answers aloud.</p>
+                            </div>
+                            <label class="switch-toggle">
+                                <input type="checkbox" id="voice-chat-toggle">
+                                <span class="slider-round"></span>
+                            </label>
+                        </div>
+
+                        <!-- Cloud API Tunnel Config -->
+                        <div class="voice-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 12px; display: flex; flex-direction: column; gap: 12px;">
+                            <h4 style="margin: 0; font-weight: 500;">Cloud API Tunnel Configuration</h4>
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <label for="voice-api-url-input" style="font-size: 0.8rem; color: var(--text-muted);">Voice API URL endpoint:</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" id="voice-api-url-input" placeholder="https://..." style="flex: 1; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
+                                    <button id="save-voice-url-btn" style="background: var(--accent-cherry, #ff4a5a); color: #fff; border: none; border-radius: 6px; padding: 0 15px; font-weight: 500; cursor: pointer; transition: opacity 0.2s;">Save</button>
+                                </div>
+                            </div>
+                            <small style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">This URL is queried dynamically by all background processes when voice synthesis is triggered.</small>
+                        </div>
+
+                        <!-- Live Waveform Visualizer simulation -->
+                        <div class="voice-card" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 15px; text-align: center;">
+                            <div id="visualizer-container" style="display: flex; align-items: center; justify-content: center; gap: 6px; height: 60px; width: 100%;">
+                                <div class="wave-bar" style="width: 6px; height: 12px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 32px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 16px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 24px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                                <div class="wave-bar" style="width: 6px; height: 12px; background: rgba(255,255,255,0.2); border-radius: 3px; transition: height 0.15s, background 0.15s;"></div>
+                            </div>
+                            <div>
+                                <h4 id="voice-acting-label" style="margin: 0; font-weight: 500; font-size: 0.9rem;">Visualizer Idle</h4>
+                                <p id="voice-acting-sub" style="margin: 5px 0 0 0; font-size: 0.75rem; color: var(--text-muted);">Activate Voice Mode or send a query to test speech response.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
         </div>
     </div>
@@ -204,6 +289,24 @@
                     <textarea id="settings-system-prompt" rows="6" placeholder="Default instructions will be used if left blank..."></textarea>
                     <small>Warning: Custom instructions will override core agent behaviors. Keep ReAct formatting details if you wish to use tools.</small>
                 </div>
+                <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 20px 0;">
+                <div class="settings-field">
+                    <label><i class="fa-brands fa-whatsapp" style="color: #25d366; margin-right: 5px;"></i> WhatsApp Connection Bridge</label>
+                    <div id="wa-panel-container" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-top: 5px; text-align: center;">
+                        <div id="wa-status-text" style="font-weight: 500; font-size: 0.95rem; margin-bottom: 10px; color: var(--text-muted);">
+                            Status: Checking...
+                        </div>
+                        
+                        <div id="wa-qr-container" style="display: none; margin: 15px auto; width: 180px; height: 180px; background: white; padding: 10px; border-radius: 6px; justify-content: center; align-items: center;">
+                            <img id="wa-qr-img" src="" alt="WhatsApp QR Code" style="width: 100%; height: 100%;">
+                        </div>
+                        
+                        <div id="wa-controls" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                            <button id="wa-start-btn" class="modal-btn-primary" style="background: #25d366; color: black; border: none; font-size: 0.85rem; padding: 8px 16px;">Start Bridge</button>
+                            <button id="wa-stop-btn" class="modal-btn-secondary" style="border-color: rgba(255,255,255,0.1); font-size: 0.85rem; padding: 8px 16px; display: none;">Stop Bridge</button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="settings-modal-footer">
                 <button class="modal-btn-secondary" id="settings-cancel-btn">Cancel</button>
@@ -212,6 +315,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="script.js?v=8"></script>
 </body>
 </html>
