@@ -1,86 +1,126 @@
-# 🍒 Cherry AI Agent
+# Cherry AI Agent
 
-Cherry is an autonomous, tool-equipped AI personal assistant and system orchestrator. It runs locally on your machine and combines **workspace file editing**, **academic research**, **dynamic browser automation**, and a **multimodal document library** under a premium, clean off-black web dashboard.
+Cherry is a local, tool-equipped personal AI assistant and system orchestrator. It combines a FastAPI control hub, a private browser dashboard, document management, voice features, WhatsApp integration, browser automation, and cautious computer-use tools.
 
----
+## Features
 
-## 🛠️ Features
+- Workspace tools for reading, writing, patching, and organizing files.
+- Multimodal document vault for uploading, classifying, indexing, and searching local documents.
+- Agent loop with streaming responses and safety-gated execution for risky actions.
+- Browser automation through Playwright.
+- Screen observation, mouse, keyboard, and system-control helpers.
+- Voice input/output support with local and remote voice options.
+- WhatsApp bridge using `whatsapp-web.js`.
 
-1.  **Workspace File Manager:** Edit, patch, create, and browse folders anywhere on your local computer.
-2.  **Multimodal Document Vault:** Upload invoices, marklists, and receipts. Cherry automatically classifies the files, extracts metadata (date, amount, company), and indexes them for semantic natural language queries.
-3.  **System Volume & Printer Hooks:** Adjust hardware volume and trigger print jobs via chat commands.
-4.  **Browser Automation:** Spawns Playwright scripts dynamically to log into web portals, scrape pages, and bypass login walls.
-5.  **WhatsApp Mock Sandbox:** Test incoming media and text webhook payloads locally.
+## Project Layout
 
----
-
-## 🚀 Setup & Installation (Step-by-Step)
-
-Follow these steps to run Cherry on your local machine:
-
-### 1. Clone the Repository
-Open a terminal and clone this repository:
-```bash
-git clone https://github.com/Vish-anand/Cherry.git
-cd Cherry
+```text
+Cherry/
+  agent/              Core agent loop, tools, memory, LLM, screen-action helpers
+  private/            Authenticated dashboard UI
+  static/             Public pages and shared static assets
+  tests/              Unit tests for agent, voice, browser, and screen tools
+  scratch/            Local experiments
+  plans/              Planning notes
+  app.py              FastAPI application entry point
+  voice_tool.py       Text-to-speech helpers
+  whatsapp_bridge.js  WhatsApp Web bridge process
 ```
 
-### 2. Create a Virtual Environment
-Create a clean virtual environment to isolate the project packages:
-```bash
+Generated runtime state is intentionally ignored by git, including `node_modules/`, `.wwebjs_auth/`, `screenshots/`, `voice_models/`, database files, logs, local audio, and `.env`.
+
+## Setup
+
+### 1. Create and activate a Python environment
+
+```powershell
 python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-### 3. Activate the Virtual Environment
-Activate the environment based on your operating system:
-*   **Windows (PowerShell):**
-    ```powershell
-    .venv\Scripts\Activate.ps1
-    ```
-*   **Windows (Command Prompt):**
-    ```cmd
-    .venv\Scripts\activate.bat
-    ```
-*   **macOS / Linux:**
-    ```bash
-    source .venv/bin/activate
-    ```
+### 2. Install Python dependencies
 
-### 4. Install Dependencies
-Install the required packages:
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-### 5. Install Playwright Browsers
-Install the browser engine required for the web automation tools:
-```bash
+### 3. Install Node dependencies
+
+```powershell
+npm install
+```
+
+### 4. Install Playwright browsers
+
+```powershell
 playwright install chromium
 ```
 
-### 6. Configure API Keys
-1.  Copy the environment variables template:
-    ```bash
-    cp .env.example .env
-    ```
-2.  Open the newly created `.env` file and insert your API Key:
-    *   **Native Gemini Key (Recommended):**
-        ```env
-        GEMINI_API_KEY=your_gemini_api_key_here
-        ```
-    *   **OpenRouter / OpenAI Fallback:**
-        ```env
-        OPENAI_API_KEY=your_openrouter_api_key_here
-        OPENAI_BASE_URL=https://openrouter.ai/api/v1
-        OPENAI_MODEL=google/gemini-2.5-flash
-        ```
+### 5. Configure environment variables
 
-### 7. Run the Server
-Launch the FastAPI backend server:
-```bash
+Copy the example file and add your local settings:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+At minimum, set one supported model provider key:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+Optional OpenAI/OpenRouter fallback:
+
+```env
+OPENAI_API_KEY=your_openrouter_or_openai_key_here
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_MODEL=google/gemini-2.5-flash
+```
+
+Recommended local protection:
+
+```env
+CHERRY_PASSWORD=choose_a_strong_local_password
+WORKSPACE_ROOT=C:\Users\Admin\Desktop\Cherry
+```
+
+## Run
+
+Start the FastAPI server:
+
+```powershell
 python app.py
 ```
 
-### 8. Access the Dashboard
-Open your web browser and navigate to:
-👉 **`http://localhost:8001/static/index.html`**
+Open the app:
+
+```text
+http://localhost:8001
+```
+
+Start the WhatsApp bridge in a separate terminal when needed:
+
+```powershell
+node whatsapp_bridge.js
+```
+
+## Test
+
+Run the unit test suite:
+
+```powershell
+python -m unittest discover -s tests
+```
+
+If the browser test fails because Chromium is missing, run:
+
+```powershell
+playwright install chromium
+```
+
+## Notes
+
+- Cherry can execute powerful local tools. Keep the dashboard password protected and avoid exposing the server outside your trusted machine or network.
+- `.wwebjs_auth/` stores local WhatsApp browser session state. It is private runtime data and should not be committed.
+- `voice_models/` can contain large local model binaries. Keep them local unless you intentionally publish a separate model artifact.

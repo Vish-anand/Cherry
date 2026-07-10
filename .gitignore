@@ -1,25 +1,55 @@
-# Virtual Environment
+# Python environments
 .venv/
 venv/
 ENV/
 env/
 
-# SQLite Database
+# Node dependencies
+node_modules/
+
+# SQLite databases
 cherry.db
 cherry.db-journal
+*.db
+*.db-journal
 
-# Environment Config (API keys)
+# Environment config and API keys
 .env
+.env.*
+!.env.example
 
-# Pycache & Bytecode
+# Python cache and bytecode
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Temporary Playwright script runs
+# Runtime browser/auth state
+.wwebjs_auth/
+
+# Temporary script runs
 temp_playwright.py
+temp_yt_play.py
 
-# Personal Document Vaults (Ignore uploads and sorted data to protect privacy)
+# Local captures, observations, and generated media
+screenshots/
+data/latest_screen_observation.json
+temp_screenshot.png
+cherry_response.wav
+cherry_response.mp3
+test_piper_output.wav
+*.wav
+*.mp3
+
+# Logs
+*.log
+
+# Local voice models can be very large
+voice_models/
+
+# Personal document vaults: ignore uploads and sorted data to protect privacy
 incoming/*
 !incoming/.gitkeep
 documents/*

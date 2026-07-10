@@ -407,6 +407,26 @@ whatsapp_process = None
 whatsapp_qr_data = None
 whatsapp_connection_status = "disconnected"  # "disconnected", "scanning", "connected"
 
+def kill_orphaned_whatsapp_bridges():
+    """Query and force-terminate any node processes running whatsapp_bridge.js on Windows."""
+    try:
+        ps_cmd = 'Get-CimInstance Win32_Process -Filter "CommandLine like \'%whatsapp_bridge.js%\'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd], capture_output=True)
+    except Exception as e:
+        print(f"Warning: Failed to clean up orphaned WhatsApp processes: {e}")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Triggered on FastAPI shutdown to clean up all background threads and processes."""
+    global whatsapp_process
+    print("FastAPI server is shutting down. Cleaning up background process trees...")
+    if whatsapp_process is not None:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(whatsapp_process.pid)], capture_output=True)
+        except Exception:
+            pass
+    kill_orphaned_whatsapp_bridges()
+
 class WhatsappStatusUpdate(BaseModel):
     status: str
 
@@ -436,6 +456,9 @@ def get_whatsapp_status():
 def start_whatsapp_bridge():
     global whatsapp_process, whatsapp_connection_status, whatsapp_qr_data
     
+    # Ensure any lingering previous processes are terminated before starting a new one
+    kill_orphaned_whatsapp_bridges()
+    
     if whatsapp_process is not None and whatsapp_process.poll() is None:
         return {"status": "success", "message": "Already running"}
         
@@ -461,8 +484,8 @@ def stop_whatsapp_bridge():
     
     if whatsapp_process is not None:
         try:
-            whatsapp_process.terminate()
-            whatsapp_process.wait(timeout=2)
+            # Kill process tree on Windows to ensure both the shell and the child node process are terminated
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(whatsapp_process.pid)], capture_output=True)
         except Exception:
             try:
                 whatsapp_process.kill()
@@ -470,6 +493,7 @@ def stop_whatsapp_bridge():
                 pass
         whatsapp_process = None
         
+    kill_orphaned_whatsapp_bridges()
     whatsapp_connection_status = "disconnected"
     whatsapp_qr_data = None
     return {"status": "success", "message": "Bridge stopped"}

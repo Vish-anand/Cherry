@@ -1,4 +1,12 @@
 {
+  "name": "cherry-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Cherry AI assistant integrations and WhatsApp bridge.",
+  "main": "whatsapp_bridge.js",
+  "scripts": {
+    "start:whatsapp": "node whatsapp_bridge.js"
+  },
   "dependencies": {
     "axios": "^1.18.0",
     "qrcode": "^1.5.4",
