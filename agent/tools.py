@@ -629,3 +629,31 @@ def search_documents(query: str):
 def list_organized_documents(category: str = None):
     results = db_list_documents(category)
     return json.dumps(results, indent=2)
+
+@register_tool(
+    name="change_voice_model",
+    description="Change the agent's sound/voice model to a selected voice. Can be a free online voice (like en-US-AnaNeural, en-GB-SoniaNeural, en-IN-NeerjaNeural, etc.) or a local offline Piper model (like en_US-amy-medium, en_US-kristin-medium, en_GB-jenny_dioco-medium, etc.).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "model_name": {"type": "string", "description": "The exact identifier name of the voice model to switch to."}
+        },
+        "required": ["model_name"]
+    }
+)
+def change_voice_model(model_name: str):
+    config_path = os.path.join(WORKSPACE_ROOT, "config.json")
+    config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        except Exception:
+            pass
+    config["voice_model"] = model_name
+    try:
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+        return f"Successfully changed the agent's voice model to '{model_name}'."
+    except Exception as e:
+        return f"Error changing voice model: {str(e)}"

@@ -55,8 +55,21 @@ def init_db():
     )
     """)
     
+    # Pending actions table for Safety Gate
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS pending_actions (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT,
+        action TEXT,
+        action_input TEXT,
+        created_at TEXT,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    )
+    """)
+    
     conn.commit()
     conn.close()
+
 
 def save_message(conversation_id: str, role: str, content: str):
     conn = get_db_connection()
@@ -216,5 +229,40 @@ def clear_messages(conversation_id: str):
     conn.commit()
     conn.close()
 
+def save_pending_action(action_id: str, conversation_id: str, action: str, action_input: dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO pending_actions (id, conversation_id, action, action_input, created_at) VALUES (?, ?, ?, ?, ?)",
+        (action_id, conversation_id, action, json.dumps(action_input), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+def get_pending_action(action_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT conversation_id, action, action_input FROM pending_actions WHERE id = ?",
+        (action_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "conversation_id": row["conversation_id"],
+            "action": row["action"],
+            "action_input": json.loads(row["action_input"]) if row["action_input"] else {}
+        }
+    return None
+
+def delete_pending_action(action_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM pending_actions WHERE id = ?", (action_id,))
+    conn.commit()
+    conn.close()
+
 # Auto-initialize DB on import
 init_db()
+

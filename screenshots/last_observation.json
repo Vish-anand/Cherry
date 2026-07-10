@@ -1,0 +1,126 @@
+{
+  "screenshot_path": "c:\\Users\\Admin\\Desktop\\Cherry\\screenshots\\latest_handoff_smoke.png",
+  "screen_size": {
+    "width": 1920,
+    "height": 1080
+  },
+  "elements": [
+    {
+      "id": "A1",
+      "label": "screen_region",
+      "bbox": [
+        0.0,
+        0.0,
+        640.0,
+        360.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "A2",
+      "label": "screen_region",
+      "bbox": [
+        640.0,
+        0.0,
+        1280.0,
+        360.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "A3",
+      "label": "screen_region",
+      "bbox": [
+        1280.0,
+        0.0,
+        1920.0,
+        360.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "B1",
+      "label": "screen_region",
+      "bbox": [
+        0.0,
+        360.0,
+        640.0,
+        720.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "B2",
+      "label": "screen_region",
+      "bbox": [
+        640.0,
+        360.0,
+        1280.0,
+        720.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "B3",
+      "label": "screen_region",
+      "bbox": [
+        1280.0,
+        360.0,
+        1920.0,
+        720.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "C1",
+      "label": "screen_region",
+      "bbox": [
+        0.0,
+        720.0,
+        640.0,
+        1080.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "C2",
+      "label": "screen_region",
+      "bbox": [
+        640.0,
+        720.0,
+        1280.0,
+        1080.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    },
+    {
+      "id": "C3",
+      "label": "screen_region",
+      "bbox": [
+        1280.0,
+        720.0,
+        1920.0,
+        1080.0
+      ],
+      "confidence": 1.0,
+      "source": "grid"
+    }
+  ],
+  "overlay_path": "c:\\Users\\Admin\\Desktop\\Cherry\\screenshots\\latest_handoff_smoke_overlay.png",
+  "metadata": {
+    "captured_at": "2026-06-26T16:08:30.997911+00:00",
+    "overlay_enabled": true,
+    "grid": {
+      "columns": 3,
+      "rows": 3
+    }
+  }
+}

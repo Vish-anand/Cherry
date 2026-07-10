@@ -2,9 +2,11 @@ import os
 import json
 import re
 import traceback
+import uuid
 from agent.llm import call_llm
 from agent.tools import TOOL_REGISTRY
-from agent.memory import save_message, get_messages, get_db_connection
+from agent.memory import save_message, get_messages, get_db_connection, save_pending_action, get_pending_action, delete_pending_action
+
 
 def auto_rename_conversation_if_needed(conversation_id: str, user_prompt: str):
     conn = get_db_connection()
@@ -136,7 +138,8 @@ CAPABILITIES — use these aggressively
 7. **Clipboard**: `get_clipboard`, `set_clipboard`.
 8. **Process Control**: `list_running_processes`, `kill_process`.
 9. **System Info**: `get_system_info`.
-10. **Keyboard/Mouse**: `type_text`, `press_key`.
+10. **Keyboard/Mouse**: `type_text`, `press_key`, `mouse_move`, `mouse_click`.
+11. **Screen Perception** (`observe_screen`, `propose_screen_action`): Capture structured screen observations and convert marked regions into validated, risk-scored action proposals before GUI actions. If the user asks to propose a click/move/type from the last screen observation, call `propose_screen_action` with the requested region id and do not call `mouse_click` or `mouse_move`.
 
 BEHAVIOUR:
 - Be AUTONOMOUS. Try, check results, fix errors, and retry. Never give up on first failure.
@@ -218,10 +221,13 @@ def run_agent_generator(
     model: str = None,
     temperature: float = None,
     system_instruction: str = None,
-    voice_mode: bool = False
+    voice_mode: bool = False,
+    voice_model: str = None,
+    resume_action_id: str = None
 ):
     """
     Generator function that runs the agent loop and yields steps (for Server-Sent Events / websockets).
+    Supports pausing for Safety Gate approvals and resuming from pending actions.
     """
     # 1. Fetch previous messages for context
     history = get_messages(conversation_id)
@@ -233,50 +239,110 @@ def run_agent_generator(
         tools_desc = get_tools_description()
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(tools_description=tools_desc)
     
-    # Save the user's initial message
-    save_message(conversation_id, "user", user_prompt)
-    
+    # Save the user's initial message ONLY if not resuming
+    if not resume_action_id and user_prompt:
+        save_message(conversation_id, "user", user_prompt)
+        
+    # Rebuild history if we just saved the user prompt
+    if not resume_action_id:
+        history = get_messages(conversation_id)
+        
     # Assemble agent context
     context = ""
     for msg in history:
         context += f"{msg['role'].capitalize()}: {msg['content']}\n\n"
-    
-    context += f"User: {user_prompt}\n"
-    if attachment_path:
+        
+    if attachment_path and not resume_action_id:
         context += f"[Attachment received: {os.path.basename(attachment_path)}]\n"
         
     loop_count = 0
     max_loops = 20
     
     # Yield starting run state
-    yield {"type": "status", "content": "Initializing Cherry agent engine..."}
+    if resume_action_id:
+        yield {"type": "status", "content": "Resuming approved action execution..."}
+    else:
+        yield {"type": "status", "content": "Initializing Cherry agent engine..."}
+        
+    # Prepare resume variables
+    is_resumed = False
+    action_to_run = None
+    action_input_to_run = None
+    thought_to_run = None
     
+    if resume_action_id:
+        pending_action = get_pending_action(resume_action_id)
+        if pending_action:
+            delete_pending_action(resume_action_id)
+            is_resumed = True
+            action_to_run = pending_action["action"]
+            action_input_to_run = pending_action["action_input"]
+            thought_to_run = "Resuming action execution with user approval."
+            
     while loop_count < max_loops:
         loop_count += 1
         yield {"type": "status", "content": f"Reasoning step {loop_count}..."}
         
-        # Call the LLM
-        prompt = context + "\nAssistant: "
-        try:
-            llm_output = call_llm(
-                prompt=prompt,
-                system_instruction=system_prompt,
-                attachment_path=attachment_path if loop_count == 1 else None, # Only pass image in first step
-                model=model,
-                temperature=temperature
-            )
-        except Exception as e:
-            err_msg = f"LLM Call failed: {str(e)}\n{traceback.format_exc()}"
-            yield {"type": "error", "content": err_msg}
-            break
+        step_was_resumed = False
+        if is_resumed:
+            thought = thought_to_run
+            action = action_to_run
+            action_input = action_input_to_run
+            final_answer = None
+            is_resumed = False
+            step_was_resumed = True
+        else:
+            # Call the LLM
+            prompt = context + "\nAssistant: "
+            try:
+                llm_output = call_llm(
+                    prompt=prompt,
+                    system_instruction=system_prompt,
+                    attachment_path=attachment_path if (loop_count == 1 and not resume_action_id) else None,
+                    model=model,
+                    temperature=temperature
+                )
+            except Exception as e:
+                err_msg = f"LLM Call failed: {str(e)}\n{traceback.format_exc()}"
+                yield {"type": "error", "content": err_msg}
+                break
+                
+            thought, action, action_input, final_answer = parse_react_response(llm_output)
             
-        thought, action, action_input, final_answer = parse_react_response(llm_output)
-        
         # Stream the thought back to dashboard
         if thought:
             yield {"type": "thought", "content": thought}
             
         if action:
+            # Check risk level for safety approval gate
+            from agent.vision_action import infer_risk
+            from agent.schemas import RiskLevel
+            
+            text_arg = action_input.get("text") or action_input.get("content") if isinstance(action_input, dict) else None
+            key_arg = action_input.get("key") if isinstance(action_input, dict) else None
+            risk = infer_risk(action, text=text_arg, key=key_arg)
+            
+            requires_approval = risk in (RiskLevel.MEDIUM, RiskLevel.HIGH)
+            
+            if requires_approval and not step_was_resumed:
+                # PAUSE execution and request approval
+                action_id = str(uuid.uuid4())
+                save_pending_action(action_id, conversation_id, action, action_input)
+                
+                # Save the proposed action to messages database history
+                proposal_text = f"Thought: {thought}\nAction: {action}\nAction Input: {json.dumps(action_input)}"
+                save_message(conversation_id, "assistant", proposal_text)
+                
+                yield {
+                    "type": "requires_approval",
+                    "action": action,
+                    "input": action_input,
+                    "action_id": action_id,
+                    "risk_level": risk.value,
+                    "thought": thought
+                }
+                break  # Terminate generator loop, waiting for resume
+                
             yield {"type": "action", "tool": action, "input": action_input}
             
             # Execute the tool
@@ -285,10 +351,7 @@ def run_agent_generator(
             else:
                 tool_info = TOOL_REGISTRY[action]
                 try:
-                    # Execute tool
                     yield {"type": "status", "content": f"Executing tool {action}..."}
-                    
-                    # Tool expects parameters as kwargs
                     kwargs = action_input if isinstance(action_input, dict) else {}
                     observation = tool_info["func"](**kwargs)
                 except Exception as e:
@@ -296,50 +359,48 @@ def run_agent_generator(
                     
             yield {"type": "observation", "content": observation}
             
-            # Update agent conversation context with the action-observation cycle
+            # If this action was resumed, save the observation to messages history
+            if step_was_resumed:
+                save_message(conversation_id, "system", f"Observation: {observation}")
+                
+            # Update agent conversation context
             context += f"\nThought: {thought}\nAction: {action}\nAction Input: {json.dumps(action_input)}\nObservation: {observation}\n"
         
         elif final_answer:
             # We reached the end
             save_message(conversation_id, "assistant", final_answer)
+            yield {"type": "final_answer", "content": final_answer}
+            
             if voice_mode:
                 yield {"type": "status", "content": "Cherry is speaking..."}
                 try:
+                    import threading
                     import voice_tool
-                    voice_tool.speak_text(final_answer)
+                    threading.Thread(
+                        target=voice_tool.speak_text,
+                        args=(final_answer, voice_model),
+                        daemon=True
+                    ).start()
                 except Exception as e:
-                    print(f"[Voice Warning] Failed to generate or play voice response: {e}")
-            # Disabled to prevent hitting free Gemini API rate limits (15 RPM)
-            # try:
-            #     auto_rename_conversation_if_needed(conversation_id, user_prompt)
-            # except Exception as e:
-            #     print(f"Auto-rename failed: {e}")
-            # try:
-            #     extract_and_update_username_from_history(conversation_id)
-            # except Exception as e:
-            #     print(f"Username extraction failed: {e}")
-            yield {"type": "final_answer", "content": final_answer}
+                    print(f"[Voice Warning] Failed to spawn voice playback thread: {e}")
             break
         else:
             # Fallback if the LLM output didn't fit ReAct exactly
             save_message(conversation_id, "assistant", llm_output)
+            yield {"type": "final_answer", "content": llm_output}
+            
             if voice_mode:
                 yield {"type": "status", "content": "Cherry is speaking..."}
                 try:
+                    import threading
                     import voice_tool
-                    voice_tool.speak_text(llm_output)
+                    threading.Thread(
+                        target=voice_tool.speak_text,
+                        args=(llm_output, voice_model),
+                        daemon=True
+                    ).start()
                 except Exception as e:
-                    print(f"[Voice Warning] Failed to generate or play voice response: {e}")
-            # Disabled to prevent hitting free Gemini API rate limits (15 RPM)
-            # try:
-            #     auto_rename_conversation_if_needed(conversation_id, user_prompt)
-            # except Exception as e:
-            #     print(f"Auto-rename failed: {e}")
-            # try:
-            #     extract_and_update_username_from_history(conversation_id)
-            # except Exception as e:
-            #     print(f"Username extraction failed: {e}")
-            yield {"type": "final_answer", "content": llm_output}
+                    print(f"[Voice Warning] Failed to spawn voice playback thread: {e}")
             break
             
     if loop_count >= max_loops:

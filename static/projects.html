@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vishnu | Case Studies & Projects</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #050508;
+            --bg-panel: rgba(13, 13, 17, 0.55);
+            --bg-widget: rgba(0, 0, 0, 0.45);
+            --accent-cherry: #ff4a5a;
+            --accent-purple: #8b5cf6;
+            --accent-blue: #3b82f6;
+            --accent-glow-cherry: rgba(255, 74, 90, 0.25);
+            --border-color: rgba(255, 255, 255, 0.05);
+            --text-main: #f3f4f6;
+            --text-muted: #8e939e;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Ambient glowing orbs */
+        .ambient-orb {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            filter: blur(150px);
+            opacity: 0.3;
+        }
+
+        .orb-red {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255, 74, 90, 0.1) 0%, rgba(0,0,0,0) 80%);
+            top: -150px;
+            right: -150px;
+        }
+
+        .orb-blue {
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(0,0,0,0) 80%);
+            bottom: -200px;
+            left: -200px;
+        }
+
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Navigation Header */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 1.5rem 4rem;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(5, 5, 8, 0.4);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 100;
+        }
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 1.5rem;
+            color: #fff;
+            text-decoration: none;
+            letter-spacing: -0.02em;
+        }
+
+        .logo span {
+            color: var(--accent-cherry);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2.5rem;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 500;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: #fff;
+        }
+
+        .console-btn {
+            background: rgba(255, 74, 90, 0.08);
+            border: 1px solid rgba(255, 74, 90, 0.25);
+            border-radius: 8px;
+            padding: 8px 16px;
+            color: #fff !important;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .console-btn:hover {
+            background: var(--accent-cherry);
+            border-color: var(--accent-cherry);
+            box-shadow: 0 0 20px var(--accent-cherry-glow);
+            transform: translateY(-1px);
+        }
+
+        /* Page Layout */
+        .page-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 10rem 2.5rem 6rem 2.5rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        .page-header {
+            margin-bottom: 4rem;
+            text-align: center;
+        }
+
+        .page-header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 900;
+            margin: 0 0 0.5rem 0;
+            letter-spacing: -0.02em;
+            color: #fff;
+        }
+
+        .page-header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Search & Filter Controls */
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+            margin-bottom: 4rem;
+            flex-wrap: wrap;
+        }
+
+        .search-wrapper {
+            position: relative;
+            max-width: 320px;
+            width: 100%;
+        }
+
+        .search-wrapper i {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .search-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 16px 12px 40px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            border-color: rgba(255, 74, 90, 0.4);
+            box-shadow: 0 0 10px rgba(255, 74, 90, 0.1);
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn:hover {
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .filter-btn.active {
+            background: rgba(255, 74, 90, 0.08);
+            border-color: rgba(255, 74, 90, 0.3);
+            color: var(--accent-cherry);
+        }
+
+        /* Case Studies Grid Layout */
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+            gap: 2.5rem;
+        }
+
+        /* 3D and Transition parameters for project cards */
+        .project-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(25px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            opacity: 1;
+            transform: scale(1);
+            transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), 
+                        transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), 
+                        border-color 0.3s ease, 
+                        box-shadow 0.3s ease;
+        }
+
+        .project-card.hidden {
+            opacity: 0;
+            transform: scale(0.9);
+            pointer-events: none;
+            display: none !important;
+        }
+
+        .project-card:hover {
+            border-color: rgba(255, 74, 90, 0.25);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.4), 0 0 30px rgba(255, 74, 90, 0.03);
+            transform: translateY(-4px);
+        }
+
+        /* Custom Interactive Visual Widget Boxes */
+        .project-widget-box {
+            height: 220px;
+            background: var(--bg-widget);
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            box-sizing: border-box;
+        }
+
+        /* Widget 1: Vital Monitor simulator screen */
+        .widget-vitals {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: #020202;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: 'JetBrains Mono', monospace;
+            padding: 12px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        .vitals-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: #10b981;
+            border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+            padding-bottom: 4px;
+        }
+
+        .vitals-body {
+            display: grid;
+            grid-template-columns: 1.8fr 1fr;
+            flex-grow: 1;
+            align-items: center;
+        }
+
+        .vitals-wave {
+            height: 80px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .vitals-wave-path {
+            width: 100%;
+            height: 100%;
+            stroke: #10b981;
+            stroke-width: 2;
+            fill: none;
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 0;
+            animation: drawWave 12s linear infinite;
+        }
+
+        @keyframes drawWave {
+            from { stroke-dashoffset: 1000; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        .vitals-stats {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .vitals-stat {
+            text-align: right;
+        }
+
+        .vitals-stat-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+        }
+
+        .vitals-stat-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .vitals-stat-val.pink {
+            color: #ff809f;
+        }
+
+        /* Widget 2: Terminal controller simulator */
+        .widget-terminal {
+            width: 100%;
+            height: 100%;
+            background: #060608;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 74, 90, 0.15);
+            font-family: 'JetBrains Mono', monospace;
+            padding: 12px;
+            box-sizing: border-box;
+            font-size: 0.72rem;
+            color: #d1d5db;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+        }
+
+        .terminal-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .terminal-dot.yellow { background: #eab308; }
+        .terminal-dot.green { background: #22c55e; }
+
+        .terminal-line {
+            line-height: 1.4;
+        }
+
+        .terminal-line span.action { color: #f59e0b; }
+        .terminal-line span.obs { color: #3b82f6; }
+        .terminal-line span.status { color: #ff4a5a; text-shadow: 0 0 8px rgba(255, 74, 90, 0.4); }
+
+        /* Widget 3: PlatformIO build specs */
+        .widget-ci {
+            width: 100%;
+            height: 100%;
+            background: #09090b;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 14px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .ci-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ci-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: #fff;
+        }
+
+        .ci-status-pill {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 100px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .ci-progress-bar-container {
+            height: 6px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 100px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .ci-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-cherry), var(--accent-blue));
+            width: 100%;
+            transform: translateX(-35%);
+            animation: progressShift 3s infinite alternate ease-in-out;
+        }
+
+        @keyframes progressShift {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(0); }
+        }
+
+        .ci-stats {
+            display: flex;
+            justify-content: space-between;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            color: var(--text-muted);
+        }
+
+        .ci-stat span {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        /* Widget 4: Reinforcement learning Q-Matrix */
+        .widget-q {
+            width: 100%;
+            height: 100%;
+            background: #020203;
+            border-radius: 8px;
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            padding: 12px;
+            box-sizing: border-box;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 8px;
+        }
+
+        .q-header {
+            font-size: 0.7rem;
+            color: var(--accent-purple);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+            padding-bottom: 4px;
+        }
+
+        .q-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 4px;
+            align-items: center;
+        }
+
+        .q-cell {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            height: 24px;
+            transition: all 0.3s;
+        }
+
+        .q-cell.active-val {
+            background: rgba(139, 92, 246, 0.1);
+            border-color: var(--accent-purple);
+            color: #fff;
+            text-shadow: 0 0 6px var(--accent-purple);
+        }
+
+        .q-cell.active-val-green {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: #10b981;
+            color: #fff;
+            text-shadow: 0 0 6px #10b981;
+        }
+
+        /* Project Body texts */
+        .project-body {
+            padding: 2.25rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .tag-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.25rem;
+        }
+
+        .tag {
+            background: rgba(255, 74, 90, 0.08);
+            color: var(--accent-cherry);
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 100px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .tag.purple {
+            background: rgba(139, 92, 246, 0.08);
+            color: var(--accent-purple);
+        }
+
+        .tag.blue {
+            background: rgba(59, 130, 246, 0.08);
+            color: var(--accent-blue);
+        }
+
+        .project-body h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 0.75rem 0;
+            color: #fff;
+        }
+
+        .project-body p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.7;
+            margin: 0;
+            flex-grow: 1;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border-color);
+            padding: 4rem 0;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            background: rgba(3, 3, 5, 0.8);
+            margin-top: 8rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        footer a {
+            color: var(--text-main);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        footer a:hover {
+            color: var(--accent-cherry);
+        }
+
+        @media (max-width: 768px) {
+            .page-header h1 {
+                font-size: 2.8rem;
+            }
+            header {
+                padding: 1.25rem 2rem;
+            }
+            .nav-links a:not(.console-btn) {
+                display: none;
+            }
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Interactive Background Canvas -->
+    <canvas id="bg-canvas"></canvas>
+
+    <div class="ambient-orb orb-red"></div>
+    <div class="ambient-orb orb-blue"></div>
+
+    <header>
+        <a href="/" class="logo">Vishnu<span>.</span></a>
+        <nav class="nav-links">
+            <a href="/">Credentials</a>
+            <a href="#" class="active">Case Studies</a>
+            <a href="/login" class="console-btn"><i class="fa-solid fa-terminal"></i> Console</a>
+        </nav>
+    </header>
+
+    <div class="page-container">
+        <div class="page-header">
+            <h1>Case Studies</h1>
+            <p>A compilation of production systems, firmware architectures, and hardware communication designs.</p>
+        </div>
+
+        <div class="controls-row">
+            <div class="search-wrapper">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="search-bar" class="search-input" placeholder="Search case studies...">
+            </div>
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="embedded">Embedded & RTOS</button>
+                <button class="filter-btn" data-filter="automation">Automation & AI</button>
+            </div>
+        </div>
+
+        <div class="projects-grid" id="projects-container">
+            <!-- Project 1 -->
+            <div class="project-card" data-category="embedded" data-title="smart vital monitor os esp32 lvgl firmware">
+                <div class="project-widget-box">
+                    <div class="widget-vitals">
+                        <div class="vitals-header">
+                            <span>MONITOR ACTIVE</span>
+                            <span>ECG/PPG CHANNEL 1</span>
+                        </div>
+                        <div class="vitals-body">
+                            <div class="vitals-wave">
+                                <svg width="100%" height="100%" viewBox="0 0 200 80">
+                                    <path class="vitals-wave-path" d="M 0,40 Q 20,40 25,40 T 35,40 T 40,20 T 45,65 T 50,40 T 70,40 T 90,40 T 110,40 T 115,40 T 125,40 T 130,20 T 135,65 T 140,40 T 160,40 T 180,40 T 200,40" />
+                                </svg>
+                            </div>
+                            <div class="vitals-stats">
+                                <div class="vitals-stat">
+                                    <div class="vitals-stat-label">HR (BPM)</div>
+                                    <div class="vitals-stat-val">98</div>
+                                </div>
+                                <div class="vitals-stat">
+                                    <div class="vitals-stat-label">SPO2 (%)</div>
+                                    <div class="vitals-stat-val pink">97</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="tag-row">
+                        <span class="tag">C++</span>
+                        <span class="tag">ESP32-S3</span>
+                        <span class="tag">LVGL</span>
+                    </div>
+                    <h3>Smart Vital Monitor OS</h3>
+                    <p>Designed a multi-threaded Vital Monitor OS utilizing the LVGL GUI framework. Created dedicated chart memory optimization loops to prevent rendering buffer overflows, and implemented custom signal-settling filters to stabilize PPG waveform inputs on finger placements.</p>
+                </div>
+            </div>
+
+            <!-- Project 2 -->
+            <div class="project-card" data-category="automation" data-title="cherry agent gateway python fastapi bedrock">
+                <div class="project-widget-box">
+                    <div class="widget-terminal">
+                        <div class="terminal-header">
+                            <span class="terminal-dot"></span>
+                            <span class="terminal-dot yellow"></span>
+                            <span class="terminal-dot.green"></span>
+                            <span style="margin-left: 6px; font-size: 0.6rem;">CHERRY GATEWAY SH</span>
+                        </div>
+                        <div class="terminal-line"><span class="action">[Action]</span> run_command: git status</div>
+                        <div class="terminal-line"><span class="obs">[Obs]</span> Branch 'main' up to date.</div>
+                        <div class="terminal-line"><span class="action">[Action]</span> run_command: get_system_info</div>
+                        <div class="terminal-line"><span class="status">[Status]</span> Cherry Hub Auth Success 🍒</div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="tag-row">
+                        <span class="tag blue">Python</span>
+                        <span class="tag blue">FastAPI</span>
+                        <span class="tag blue">AWS Bedrock</span>
+                    </div>
+                    <h3>Cherry Agent Gateway</h3>
+                    <p>Built a local device control dashboard using FastAPI and Bedrock. Features secure, session-protected route authentication, background tool executions (keyboard, mouse, shell control), automated file organizers, and local visual observation overlays.</p>
+                </div>
+            </div>
+
+            <!-- Project 3 -->
+            <div class="project-card" data-category="automation" data-title="platformio continuous integration daemon scripts">
+                <div class="project-widget-box">
+                    <div class="widget-ci">
+                        <div class="ci-top">
+                            <span class="ci-title">BUILD DAEMON #1042</span>
+                            <span class="ci-status-pill">Success</span>
+                        </div>
+                        <div class="ci-progress-bar-container">
+                            <div class="ci-progress-bar"></div>
+                        </div>
+                        <div class="ci-stats">
+                            <div class="ci-stat">RAM: <span>42.1%</span></div>
+                            <div class="ci-stat">Flash: <span>67.4%</span></div>
+                            <div class="ci-stat">Target: <span>esp32s3</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="tag-row">
+                        <span class="tag blue">Python</span>
+                        <span class="tag blue">CI/CD</span>
+                        <span class="tag blue">PlatformIO</span>
+                    </div>
+                    <h3>CI/CD Build Automation</h3>
+                    <p>Created a background compilation daemon that runs PlatformIO compilation jobs. Automatically verifies dependency trees, builds binary images, runs hardware unit tests on live nodes, and generates build summaries.</p>
+                </div>
+            </div>
+
+            <!-- Project 4 -->
+            <div class="project-card" data-category="embedded" data-title="esp32 q-learning agent iot control reinforcement">
+                <div class="project-widget-box">
+                    <div class="widget-q">
+                        <div class="q-header">Q-MATRIX CONSOLE [LEARNING ACTIVE]</div>
+                        <div class="q-grid">
+                            <div class="q-cell">+0.12</div><div class="q-cell">+0.04</div><div class="q-cell">-0.82</div><div class="q-cell">+0.01</div>
+                            <div class="q-cell active-val-green">+0.95</div><div class="q-cell">-0.11</div><div class="q-cell">+0.32</div><div class="q-cell">+0.08</div>
+                            <div class="q-cell">-0.05</div><div class="q-cell active-val">+0.87</div><div class="q-cell">-0.14</div><div class="q-cell">+0.00</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="tag-row">
+                        <span class="tag purple">C++</span>
+                        <span class="tag purple">Q-Learning</span>
+                        <span class="tag purple">IoT</span>
+                    </div>
+                    <h3>ESP32 Q-Learning Agent</h3>
+                    <p>Embedded reinforcement learning loops onto a low-cost ESP32-C3 node. The Q-learning agent dynamically tunes actuator thresholds in response to environment temperature drift, completely running on-device with zero cloud latency.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Vishnu. Engineered for high performance. Protected by <a href="/login">Cherry Security</a>.</p>
+    </footer>
+
+    <script>
+        // --- Filter & Search Logic with Transitions ---
+        const searchBar = document.getElementById("search-bar");
+        const filterBtns = document.querySelectorAll(".filter-btn");
+        const projectCards = document.querySelectorAll(".project-card");
+
+        const filterProjects = () => {
+            const searchQuery = searchBar.value.toLowerCase().trim();
+            const activeFilter = document.querySelector(".filter-btn.active").getAttribute("data-filter");
+
+            projectCards.forEach(card => {
+                const title = card.getAttribute("data-title");
+                const category = card.getAttribute("data-category");
+                
+                const matchesSearch = title.includes(searchQuery);
+                const matchesFilter = activeFilter === "all" || category === activeFilter;
+
+                if (matchesSearch && matchesFilter) {
+                    card.classList.remove("hidden");
+                } else {
+                    card.classList.add("hidden");
+                }
+            });
+        };
+
+        searchBar.addEventListener("input", filterProjects);
+
+        filterBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                filterBtns.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                filterProjects();
+            });
+        });
+
+        // --- Interactive Neural Network Canvas Background ---
+        const canvas = document.getElementById("bg-canvas");
+        const ctx = canvas.getContext("2d");
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        window.addEventListener("resize", () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        const particles = [];
+        const numParticles = 80;
+        const connectionDistance = 120;
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.4;
+                this.vy = (Math.random() - 0.5) * 0.4;
+                this.radius = Math.random() * 2 + 1;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < numParticles; i++) {
+            particles.push(new Particle());
+        }
+
+        let mouseX = null;
+        let mouseY = null;
+
+        window.addEventListener("mousemove", (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener("mouseleave", () => {
+            mouseX = null;
+            mouseY = null;
+        });
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            for (let i = 0; i < particles.length; i++) {
+                const p1 = particles[i];
+                
+                if (mouseX !== null && mouseY !== null) {
+                    const dx = p1.x - mouseX;
+                    const dy = p1.y - mouseY;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(mouseX, mouseY);
+                        ctx.strokeStyle = `rgba(255, 74, 90, ${0.12 * (1 - dist/150)})`;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p2 = particles[j];
+                    const dx = p1.x - p2.x;
+                    const dy = p1.y - p2.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+
+                    if (dist < connectionDistance) {
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${0.08 * (1 - dist/connectionDistance)})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

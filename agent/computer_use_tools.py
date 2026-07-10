@@ -18,6 +18,8 @@ import subprocess
 import platform
 from datetime import datetime
 from agent.tools import TOOL_REGISTRY, register_tool, WORKSPACE_ROOT, call_llm
+from agent.bezier_mouse import human_like_mouse_move, human_like_click, human_like_type
+
 
 # ==========================================
 # SHELL / TERMINAL EXECUTION
@@ -29,7 +31,7 @@ from agent.tools import TOOL_REGISTRY, register_tool, WORKSPACE_ROOT, call_llm
         "Execute any PowerShell or CMD command on the user's Windows PC and return the output. "
         "Use this for: git operations (clone, push, pull, commit), building Android apps (gradlew build), "
         "running npm/pip/python scripts, creating directories, listing files, deploying projects, "
-        "running any terminal command, and more. This is the most powerful tool — use it for anything that needs a shell."
+        "running any terminal command, and more. This is the most powerful tool â€” use it for anything that needs a shell."
     ),
     parameters={
         "type": "object",
@@ -159,7 +161,7 @@ Write-Output "saved"
         )
         return f"Screenshot saved as '{filename}'.\n\nScreen Content:\n{description}"
     except Exception:
-        return f"Screenshot saved as '{filename}'. (Vision analysis unavailable — file is in workspace.)"
+        return f"Screenshot saved as '{filename}'. (Vision analysis unavailable â€” file is in workspace.)"
 
 
 # ==========================================
@@ -507,7 +509,7 @@ if ($battery) { Write-Output "Battery: $($battery.EstimatedChargeRemaining)% ($(
 
 @register_tool(
     name="type_text",
-    description="Type text as keyboard input into the currently focused window. Use when you need to type into an app, form, or dialog on screen.",
+    description="Type text as keyboard input into the currently focused window with natural, human-like typing cadence. Use when you need to type into an app, form, or dialog on screen.",
     parameters={
         "type": "object",
         "properties": {
@@ -519,13 +521,12 @@ if ($battery) { Write-Output "Battery: $($battery.EstimatedChargeRemaining)% ($(
 )
 def type_text(text: str, delay_seconds: float = 0):
     try:
-        import pyautogui
         import time
         if delay_seconds > 0:
             time.sleep(delay_seconds)
-        pyautogui.typewrite(text, interval=0.05)
+        human_like_type(text)
         return f"Typed: {text[:100]}"
-    except ImportError:
+    except Exception as e:
         # Fallback: PowerShell SendKeys
         escaped = text.replace("'", "\\'")
         ps = f"""
@@ -536,11 +537,60 @@ Add-Type -AssemblyName System.Windows.Forms
         try:
             subprocess.run(["powershell", "-Command", ps], timeout=15)
             return f"Typed text via SendKeys."
-        except Exception as e:
-            return f"Error typing text: {str(e)}"
-    except Exception as e:
-        return f"Error typing text: {str(e)}"
+        except Exception as se:
+            return f"Error typing text: {str(se)}"
 
+@register_tool(
+    name="mouse_move",
+    description="Move the mouse cursor to specific coordinates (x, y) on the screen using human-like mouse kinematics (spline curves, easing, muscle tremor jitter).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer", "description": "Target X coordinate on screen."},
+            "y": {"type": "integer", "description": "Target Y coordinate on screen."}
+        },
+        "required": ["x", "y"]
+    }
+)
+def mouse_move(x: int, y: int):
+    try:
+        human_like_mouse_move(x, y)
+        return f"Moved mouse to ({x}, {y})."
+    except Exception as e:
+        # Fallback to direct pyautogui
+        try:
+            import pyautogui
+            pyautogui.moveTo(x, y)
+            return f"Moved mouse to ({x}, {y}) via fallback."
+        except Exception as fe:
+            return f"Error moving mouse: {str(fe)}"
+
+@register_tool(
+    name="mouse_click",
+    description="Move the mouse cursor to specific coordinates (x, y) and perform a natural human-speed mouse click.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer", "description": "Target X coordinate on screen."},
+            "y": {"type": "integer", "description": "Target Y coordinate on screen."},
+            "button": {"type": "string", "description": "The mouse button to click: 'left', 'right', 'middle'. Default: 'left'."},
+            "clicks": {"type": "integer", "description": "The number of clicks to perform. Default: 1."}
+        },
+        "required": ["x", "y"]
+    }
+)
+def mouse_click(x: int, y: int, button: str = "left", clicks: int = 1):
+    try:
+        human_like_click(x, y, button=button, clicks=clicks)
+        return f"Clicked {button} button {clicks} times at ({x}, {y})."
+    except Exception as e:
+        # Fallback to direct pyautogui click
+        try:
+            import pyautogui
+            pyautogui.click(x, y, button=button, clicks=clicks)
+            return f"Clicked at ({x}, {y}) via fallback."
+        except Exception as fe:
+            return f"Error performing click: {str(fe)}"
 
 @register_tool(
     name="press_key",
@@ -589,5 +639,97 @@ Add-Type -AssemblyName System.Windows.Forms
     except Exception as e:
         return f"Error pressing key: {str(e)}"
 
+
+
+def _latest_observation_path():
+    return os.path.join(WORKSPACE_ROOT, "data", "latest_screen_observation.json")
+
+
+def _save_latest_observation(observation_json_text: str):
+    latest_path = _latest_observation_path()
+    os.makedirs(os.path.dirname(latest_path), exist_ok=True)
+    with open(latest_path, "w", encoding="utf-8") as f:
+        f.write(observation_json_text)
+
+
+def _load_latest_observation() -> str:
+    latest_path = _latest_observation_path()
+    if not os.path.exists(latest_path):
+        raise FileNotFoundError("No saved screen observation found. Run observe_screen first.")
+    with open(latest_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@register_tool(
+    name="observe_screen",
+    description=(
+        "Capture the current screen and return structured visual observation JSON, including screen size, "
+        "a Set-of-Mark grid, and an optional overlay image path. Use this before proposing mouse actions."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {"type": "string", "description": "Optional PNG filename for the raw screenshot."},
+            "overlay": {"type": "boolean", "description": "Whether to generate a numbered overlay image. Default: true."},
+            "columns": {"type": "integer", "description": "Number of grid columns for Set-of-Mark regions. Default: 3."},
+            "rows": {"type": "integer", "description": "Number of grid rows for Set-of-Mark regions. Default: 3."}
+        },
+        "required": []
+    }
+)
+def observe_screen(filename: str = None, overlay: bool = True, columns: int = 3, rows: int = 3):
+    try:
+        from agent.screen_parser import observe_screen as build_observation, observation_json
+
+        columns = max(1, min(8, int(columns or 3)))
+        rows = max(1, min(8, int(rows or 3)))
+        observation = build_observation(filename=filename, overlay=overlay, columns=columns, rows=rows)
+        result = observation_json(observation)
+        _save_latest_observation(result)
+        return result
+    except Exception as e:
+        return f"Error observing screen: {str(e)}"
+
+
+@register_tool(
+    name="propose_screen_action",
+    description=(
+        "Create a validated ActionProposal JSON for a marked screen region. If observation_json_text is omitted, "
+        "use the latest observation saved by observe_screen. This does not execute the action; it prepares the safe handoff for approval."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "element_id": {"type": "string", "description": "The Set-of-Mark element id to target, such as A1 or B2."},
+            "observation_json_text": {"type": "string", "description": "Optional JSON text returned by observe_screen. Omit to use the latest saved observation."},
+            "action_type": {"type": "string", "description": "One of: click, move, type, press_key. Default: click."},
+            "text": {"type": "string", "description": "Text to type, or key name for press_key actions."},
+            "rationale": {"type": "string", "description": "Short reason why this action is being proposed."}
+        },
+        "required": ["element_id"]
+    }
+)
+def propose_screen_action(
+    element_id: str,
+    observation_json_text: str = None,
+    action_type: str = "click",
+    text: str = None,
+    rationale: str = "",
+):
+    try:
+        from agent.vision_action import proposal_from_observation_json
+
+        if not observation_json_text:
+            observation_json_text = _load_latest_observation()
+        proposal = proposal_from_observation_json(
+            observation_json_text=observation_json_text,
+            element_id=element_id,
+            action_type=action_type,
+            text=text,
+            rationale=rationale,
+        )
+        return json.dumps(proposal.to_dict(), indent=2)
+    except Exception as e:
+        return f"Error proposing screen action: {str(e)}"
 
 print("[OK] Cherry Computer-Use Tools loaded successfully.")

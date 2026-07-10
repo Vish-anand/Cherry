@@ -16,3 +16,12 @@ openai
 
 
 
+mss
+numpy
+scipy
+pyautogui
+pygetwindow
+piper-tts
+edge-tts
+SpeechRecognition
+pydub

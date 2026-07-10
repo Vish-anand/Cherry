@@ -52,6 +52,16 @@ def call_llm(
             mime_type = 'image/webp'
         elif ext == '.pdf':
             mime_type = 'application/pdf'
+        elif ext == '.webm':
+            mime_type = 'audio/webm'
+        elif ext == '.wav':
+            mime_type = 'audio/wav'
+        elif ext == '.mp3':
+            mime_type = 'audio/mpeg'
+        elif ext == '.ogg':
+            mime_type = 'audio/ogg'
+        elif ext in ['.m4a', '.mp4']:
+            mime_type = 'audio/mp4'
             
         if mime_type:
             with open(attachment_path, "rb") as f:
