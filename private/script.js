@@ -167,9 +167,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatMessages = document.getElementById("chat-messages");
     let activeEventSource = null;
 
+    function mascotDo(action) {
+        if (window.CherryMascot && typeof window.CherryMascot[action] === "function") {
+            window.CherryMascot[action]();
+        }
+    }
+
     async function sendChatMessage() {
         const text = chatInput.value.trim();
         if (!text && !activeAttachment) return;
+        mascotDo("thinking");
         
         chatInput.value = "";
         chatInput.style.height = "auto"; // Reset height
@@ -292,25 +299,30 @@ document.addEventListener("DOMContentLoaded", () => {
             if (step.type === "status") {
                 updateLiveStatus(step.content);
                 if (step.content === "Cherry is speaking...") {
+                    mascotDo("talking");
                     if (typeof startVoiceVisualizer === "function") {
                         startVoiceVisualizer();
                     }
                 }
 
             } else if (step.type === "thought") {
+                mascotDo("thinking");
                 liveLabel.textContent = "Thinking…";
                 appendStepToLiveBody(liveBody, "thought", "Thought", step.content);
 
             } else if (step.type === "action") {
+                mascotDo("jump");
                 const argsStr = JSON.stringify(step.input, null, 2);
                 liveLabel.textContent = `Running: ${step.tool}`;
                 appendStepToLiveBody(liveBody, "action", `Action: ${step.tool}`, `Arguments:\n${argsStr}`);
 
             } else if (step.type === "observation") {
+                mascotDo("thinking");
                 liveLabel.textContent = "Processing result…";
                 appendStepToLiveBody(liveBody, "observation", "Observation", step.content);
 
             } else if (step.type === "final_answer") {
+                mascotDo("talking");
                 thinkingDiv.remove();
                 if (typeof stopVoiceVisualizer === "function") {
                     stopVoiceVisualizer();
@@ -336,6 +348,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 appendMessage("assistant", step.content);
+                setTimeout(() => mascotDo("idle"), 1800);
                 updateLiveStatus("Cherry is Active");
                 activeEventSource.close();
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -343,6 +356,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 loadConversations();
 
             } else if (step.type === "error") {
+                mascotDo("error");
                 thinkingDiv.remove();
                 liveDropdown.remove();
                 if (typeof stopVoiceVisualizer === "function") {
@@ -356,6 +370,7 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         activeEventSource.onerror = () => {
+            mascotDo("error");
             thinkingDiv.remove();
             liveDropdown.remove();
             if (typeof stopVoiceVisualizer === "function") {

@@ -132,6 +132,10 @@ def get_dashboard():
 def get_dashboard_script():
     return FileResponse(os.path.join(WORKSPACE_ROOT, "private", "script.js"))
 
+@app.get("/dashboard/mascot.js")
+def get_dashboard_mascot():
+    return FileResponse(os.path.join(WORKSPACE_ROOT, "private", "mascot.js"))
+
 @app.get("/api/chat")
 def chat_endpoint(
     prompt: str = Query(None), 
