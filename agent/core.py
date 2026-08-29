@@ -314,14 +314,35 @@ def run_agent_generator(
             yield {"type": "thought", "content": thought}
             
         if action:
-            # Check risk level for safety approval gate
-            from agent.vision_action import infer_risk
+            # Check risk level for safety approval gate.
+            #
+            # Each tool declares its own risk_level at registration time (see
+            # agent/tools.py's register_tool() and every @register_tool(...) call in
+            # agent/tools.py / agent/computer_use_tools.py). We look that up directly by
+            # tool name here rather than calling agent.vision_action.infer_risk(), which
+            # only understands the separate screen-action vocabulary ("move"/"click"/
+            # "type"/"press_key") used by observe_screen/propose_screen_action — passing
+            # a real tool name like "run_shell_command" into it never matched anything
+            # and silently fell through to its HIGH default for every tool call.
             from agent.schemas import RiskLevel
-            
-            text_arg = action_input.get("text") or action_input.get("content") if isinstance(action_input, dict) else None
-            key_arg = action_input.get("key") if isinstance(action_input, dict) else None
-            risk = infer_risk(action, text=text_arg, key=key_arg)
-            
+
+            tool_info_for_risk = TOOL_REGISTRY.get(action)
+            if tool_info_for_risk is not None:
+                risk = tool_info_for_risk.get("risk_level", RiskLevel.HIGH)
+            else:
+                # Unknown tool name (e.g. the model hallucinated one) — fail closed.
+                risk = RiskLevel.HIGH
+
+            # press_key additionally escalates to HIGH for specific dangerous keys
+            # (Enter, Ctrl+S, Alt+F4, Delete, etc.) even though the tool itself is
+            # registered as MEDIUM by default — reuse the existing key-risk logic for that.
+            if action == "press_key" and isinstance(action_input, dict):
+                from agent.vision_action import infer_risk as infer_key_risk
+                key_arg = action_input.get("key") or action_input.get("text")
+                key_risk = infer_key_risk("press_key", key=key_arg)
+                if key_risk == RiskLevel.HIGH:
+                    risk = RiskLevel.HIGH
+
             requires_approval = risk in (RiskLevel.MEDIUM, RiskLevel.HIGH)
             
             if requires_approval and not step_was_resumed:
@@ -404,4 +425,4 @@ def run_agent_generator(
             break
             
     if loop_count >= max_loops:
-        yield {"type": "error", "content": "Reached maximum reasoning steps (10) without finding a final answer."}
+        yield {"type": "error", "content": f"Reached maximum reasoning steps ({max_loops}) without finding a final answer."}

@@ -17,7 +17,15 @@ import shutil
 import subprocess
 import platform
 from datetime import datetime
-from agent.tools import TOOL_REGISTRY, register_tool, WORKSPACE_ROOT, call_llm
+from agent.tools import (
+    TOOL_REGISTRY,
+    register_tool,
+    WORKSPACE_ROOT,
+    call_llm,
+    resolve_workspace_path,
+    WorkspaceEscapeError,
+)
+from agent.schemas import RiskLevel
 from agent.bezier_mouse import human_like_mouse_move, human_like_click, human_like_type
 
 
@@ -47,15 +55,23 @@ from agent.bezier_mouse import human_like_mouse_move, human_like_click, human_li
             "timeout": {
                 "type": "integer",
                 "description": "Maximum seconds to wait (default: 120)."
+            },
+            "allow_outside_workspace": {
+                "type": "boolean",
+                "description": "Set true to explicitly allow working_directory to be outside the Cherry workspace folder. Default false."
             }
         },
         "required": ["command"]
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
-def run_shell_command(command: str, working_directory: str = None, timeout: int = 120):
+def run_shell_command(command: str, working_directory: str = None, timeout: int = 120, allow_outside_workspace: bool = False):
     cwd = WORKSPACE_ROOT
     if working_directory and os.path.exists(working_directory):
-        cwd = working_directory
+        try:
+            cwd = resolve_workspace_path(working_directory, allow_outside_workspace=allow_outside_workspace)
+        except WorkspaceEscapeError as e:
+            return f"Error: {e}"
 
     try:
         result = subprocess.run(
@@ -105,7 +121,8 @@ def run_shell_command(command: str, working_directory: str = None, timeout: int 
             }
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def take_screenshot(filename: str = None):
     if not filename:
@@ -181,13 +198,21 @@ Write-Output "saved"
             "recursive": {
                 "type": "boolean",
                 "description": "Set to true to delete a folder and all its contents. Default: false."
+            },
+            "allow_outside_workspace": {
+                "type": "boolean",
+                "description": "Set true to explicitly delete a path outside the Cherry workspace folder. Default false."
             }
         },
         "required": ["file_path"]
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
-def delete_file(file_path: str, recursive: bool = False):
-    full_path = file_path if os.path.isabs(file_path) else os.path.join(WORKSPACE_ROOT, file_path)
+def delete_file(file_path: str, recursive: bool = False, allow_outside_workspace: bool = False):
+    try:
+        full_path = resolve_workspace_path(file_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_path):
         return f"Error: '{file_path}' does not exist."
     try:
@@ -207,19 +232,24 @@ def delete_file(file_path: str, recursive: bool = False):
 
 @register_tool(
     name="copy_file",
-    description="Copy a file or folder to a new location. Works for duplicating files, creating backups, or moving copies.",
+    description="Copy a file or folder to a new location. Works for duplicating files, creating backups, or moving copies. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "source": {"type": "string", "description": "Source file or folder path (absolute or workspace-relative)."},
-            "destination": {"type": "string", "description": "Destination path (absolute or workspace-relative)."}
+            "destination": {"type": "string", "description": "Destination path (absolute or workspace-relative)."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly allow source and/or destination outside the Cherry workspace folder. Default false."}
         },
         "required": ["source", "destination"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def copy_file(source: str, destination: str):
-    src = source if os.path.isabs(source) else os.path.join(WORKSPACE_ROOT, source)
-    dst = destination if os.path.isabs(destination) else os.path.join(WORKSPACE_ROOT, destination)
+def copy_file(source: str, destination: str, allow_outside_workspace: bool = False):
+    try:
+        src = resolve_workspace_path(source, allow_outside_workspace=allow_outside_workspace)
+        dst = resolve_workspace_path(destination, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(src):
         return f"Error: Source '{source}' does not exist."
     try:
@@ -236,19 +266,24 @@ def copy_file(source: str, destination: str):
 
 @register_tool(
     name="move_file",
-    description="Move or rename a file or folder. Use for reorganizing the file system or renaming items.",
+    description="Move or rename a file or folder. Use for reorganizing the file system or renaming items. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "source": {"type": "string", "description": "Source path (absolute or workspace-relative)."},
-            "destination": {"type": "string", "description": "Destination path (absolute or workspace-relative)."}
+            "destination": {"type": "string", "description": "Destination path (absolute or workspace-relative)."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly allow source and/or destination outside the Cherry workspace folder. Default false."}
         },
         "required": ["source", "destination"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def move_file(source: str, destination: str):
-    src = source if os.path.isabs(source) else os.path.join(WORKSPACE_ROOT, source)
-    dst = destination if os.path.isabs(destination) else os.path.join(WORKSPACE_ROOT, destination)
+def move_file(source: str, destination: str, allow_outside_workspace: bool = False):
+    try:
+        src = resolve_workspace_path(source, allow_outside_workspace=allow_outside_workspace)
+        dst = resolve_workspace_path(destination, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(src):
         return f"Error: Source '{source}' does not exist."
     try:
@@ -272,12 +307,17 @@ def move_file(source: str, destination: str):
             "save_path": {
                 "type": "string",
                 "description": "Where to save the file (absolute or workspace-relative path including filename, e.g. 'downloads/photo.jpg'). If not provided, auto-detects filename from URL."
+            },
+            "allow_outside_workspace": {
+                "type": "boolean",
+                "description": "Set true to explicitly save outside the Cherry workspace folder. Default false."
             }
         },
         "required": ["url"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def download_file(url: str, save_path: str = None):
+def download_file(url: str, save_path: str = None, allow_outside_workspace: bool = False):
     import urllib.request
     import urllib.parse
 
@@ -285,7 +325,10 @@ def download_file(url: str, save_path: str = None):
         filename = os.path.basename(urllib.parse.urlparse(url).path) or "downloaded_file"
         save_path = os.path.join("downloads", filename)
 
-    full_path = save_path if os.path.isabs(save_path) else os.path.join(WORKSPACE_ROOT, save_path)
+    try:
+        full_path = resolve_workspace_path(save_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
     try:
@@ -301,23 +344,31 @@ def download_file(url: str, save_path: str = None):
 
 @register_tool(
     name="zip_folder",
-    description="Compress a folder into a ZIP archive. Useful for packaging project builds or backing up folders.",
+    description="Compress a folder into a ZIP archive. Useful for packaging project builds or backing up folders. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "folder_path": {"type": "string", "description": "Path to the folder to compress."},
-            "output_path": {"type": "string", "description": "Path for the output ZIP file (e.g. 'my_project.zip'). Defaults to folder name."}
+            "output_path": {"type": "string", "description": "Path for the output ZIP file (e.g. 'my_project.zip'). Defaults to folder name."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly allow folder_path and/or output_path outside the Cherry workspace folder. Default false."}
         },
         "required": ["folder_path"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def zip_folder(folder_path: str, output_path: str = None):
-    src = folder_path if os.path.isabs(folder_path) else os.path.join(WORKSPACE_ROOT, folder_path)
+def zip_folder(folder_path: str, output_path: str = None, allow_outside_workspace: bool = False):
+    try:
+        src = resolve_workspace_path(folder_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(src):
         return f"Error: '{folder_path}' does not exist."
     if not output_path:
         output_path = os.path.basename(src.rstrip("/\\")) + ".zip"
-    dst = output_path if os.path.isabs(output_path) else os.path.join(WORKSPACE_ROOT, output_path)
+    try:
+        dst = resolve_workspace_path(output_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     try:
         base = dst[:-4] if dst.endswith(".zip") else dst
         shutil.make_archive(base, "zip", src)
@@ -328,24 +379,31 @@ def zip_folder(folder_path: str, output_path: str = None):
 
 @register_tool(
     name="extract_zip",
-    description="Extract a ZIP archive to a specified folder.",
+    description="Extract a ZIP archive to a specified folder. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "zip_path": {"type": "string", "description": "Path to the ZIP file to extract."},
-            "destination": {"type": "string", "description": "Folder to extract into. Defaults to same directory as ZIP."}
+            "destination": {"type": "string", "description": "Folder to extract into. Defaults to same directory as ZIP."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly allow zip_path and/or destination outside the Cherry workspace folder. Default false."}
         },
         "required": ["zip_path"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def extract_zip(zip_path: str, destination: str = None):
+def extract_zip(zip_path: str, destination: str = None, allow_outside_workspace: bool = False):
     import zipfile
-    full_zip = zip_path if os.path.isabs(zip_path) else os.path.join(WORKSPACE_ROOT, zip_path)
+    try:
+        full_zip = resolve_workspace_path(zip_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_zip):
         return f"Error: ZIP file '{zip_path}' not found."
-    dst = destination if destination else os.path.dirname(full_zip)
-    if not os.path.isabs(dst):
-        dst = os.path.join(WORKSPACE_ROOT, dst)
+    dst_input = destination if destination else os.path.dirname(full_zip)
+    try:
+        dst = resolve_workspace_path(dst_input, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     try:
         with zipfile.ZipFile(full_zip, "r") as z:
             z.extractall(dst)
@@ -361,7 +419,8 @@ def extract_zip(zip_path: str, destination: str = None):
 @register_tool(
     name="get_clipboard",
     description="Read the current text content of the Windows clipboard. Use when the user says 'what's in my clipboard' or wants to use copied content.",
-    parameters={"type": "object", "properties": {}, "required": []}
+    parameters={"type": "object", "properties": {}, "required": []},
+    risk_level=RiskLevel.LOW
 )
 def get_clipboard():
     ps = "Get-Clipboard"
@@ -383,7 +442,8 @@ def get_clipboard():
             "text": {"type": "string", "description": "The text to copy to the clipboard."}
         },
         "required": ["text"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def set_clipboard(text: str):
     escaped = text.replace("'", "''")
@@ -409,7 +469,8 @@ def set_clipboard(text: str):
             "filter": {"type": "string", "description": "Optional filter string to show only matching process names."}
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def list_running_processes(filter: str = None):
     ps = "Get-Process | Select-Object Name, Id, CPU, WorkingSet | Sort-Object CPU -Descending | ConvertTo-Json -Depth 1"
@@ -445,7 +506,8 @@ def list_running_processes(filter: str = None):
             "pid": {"type": "integer", "description": "Process ID to kill. Leave blank if using process_name."}
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
 def kill_process(process_name: str = None, pid: int = None):
     try:
@@ -473,7 +535,8 @@ def kill_process(process_name: str = None, pid: int = None):
 @register_tool(
     name="get_system_info",
     description="Get detailed system information: OS version, CPU, RAM usage, disk space, GPU, battery level, and network info. Use when the user asks about their PC specs or system status.",
-    parameters={"type": "object", "properties": {}, "required": []}
+    parameters={"type": "object", "properties": {}, "required": []},
+    risk_level=RiskLevel.LOW
 )
 def get_system_info():
     ps = r"""
@@ -517,7 +580,8 @@ if ($battery) { Write-Output "Battery: $($battery.EstimatedChargeRemaining)% ($(
             "delay_seconds": {"type": "number", "description": "How many seconds to wait before typing (e.g. 2 to give time to click a window)."}
         },
         "required": ["text"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def type_text(text: str, delay_seconds: float = 0):
     try:
@@ -550,7 +614,8 @@ Add-Type -AssemblyName System.Windows.Forms
             "y": {"type": "integer", "description": "Target Y coordinate on screen."}
         },
         "required": ["x", "y"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def mouse_move(x: int, y: int):
     try:
@@ -577,7 +642,8 @@ def mouse_move(x: int, y: int):
             "clicks": {"type": "integer", "description": "The number of clicks to perform. Default: 1."}
         },
         "required": ["x", "y"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def mouse_click(x: int, y: int, button: str = "left", clicks: int = 1):
     try:
@@ -602,7 +668,8 @@ def mouse_click(x: int, y: int, button: str = "left", clicks: int = 1):
             "delay_seconds": {"type": "number", "description": "Seconds to wait before pressing the key."}
         },
         "required": ["key"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def press_key(key: str, delay_seconds: float = 0):
     try:
@@ -675,7 +742,8 @@ def _load_latest_observation() -> str:
             "rows": {"type": "integer", "description": "Number of grid rows for Set-of-Mark regions. Default: 3."}
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def observe_screen(filename: str = None, overlay: bool = True, columns: int = 3, rows: int = 3):
     try:
@@ -707,7 +775,8 @@ def observe_screen(filename: str = None, overlay: bool = True, columns: int = 3,
             "rationale": {"type": "string", "description": "Short reason why this action is being proposed."}
         },
         "required": ["element_id"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def propose_screen_action(
     element_id: str,

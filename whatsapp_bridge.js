@@ -3,6 +3,54 @@ const qrcode = require('qrcode-terminal');
 const QRCodeImg = require('qrcode');
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
+
+// Minimal .env loader (no dotenv dependency required). Only used for the two new
+// security settings below; existing behavior for everything else is unchanged.
+function loadEnvFile(envPath) {
+    const values = {};
+    try {
+        const raw = fs.readFileSync(envPath, 'utf8');
+        for (const line of raw.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const eq = trimmed.indexOf('=');
+            if (eq === -1) continue;
+            const key = trimmed.slice(0, eq).trim();
+            const value = trimmed.slice(eq + 1).trim();
+            if (key) values[key] = value;
+        }
+    } catch (e) {
+        // .env is optional here; fall back to process.env only.
+    }
+    return values;
+}
+
+const envFromFile = loadEnvFile(path.join(__dirname, '.env'));
+function getEnv(key, fallback = '') {
+    if (process.env[key] !== undefined && process.env[key] !== '') return process.env[key];
+    if (envFromFile[key] !== undefined) return envFromFile[key];
+    return fallback;
+}
+
+// Shared secret sent with every webhook call so app.py can verify this request really
+// came from the local bridge (see WHATSAPP_WEBHOOK_SECRET in app.py / .env.example).
+const WEBHOOK_SECRET = getEnv('WHATSAPP_WEBHOOK_SECRET', '');
+if (!WEBHOOK_SECRET) {
+    console.warn('[Cherry WhatsApp Bridge] WARNING: WHATSAPP_WEBHOOK_SECRET is not set — the backend will reject every message until it is.');
+}
+
+// Only these WhatsApp JIDs are ever forwarded to the agent. Anyone else's message is
+// logged locally and silently dropped (no reply is sent, no agent call is made).
+const ALLOWED_SENDERS = new Set(
+    getEnv('WHATSAPP_ALLOWED_SENDERS', '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+);
+if (ALLOWED_SENDERS.size === 0) {
+    console.warn('[Cherry WhatsApp Bridge] WARNING: WHATSAPP_ALLOWED_SENDERS is empty — no incoming message will be forwarded to the agent until it is set.');
+}
 
 // Auto-detect local Chrome or Edge path on Windows to avoid downloading headless Chrome
 function getLocalBrowserPath() {
@@ -126,6 +174,14 @@ client.on('message_create', async (msg) => {
 
     console.log(`[WhatsApp Inbound] From: ${chatPartner} (Self: ${isSelfChat}) | Message: "${msg.body}"`);
 
+    // Sender allowlist: only forward messages from numbers the user has explicitly
+    // approved in WHATSAPP_ALLOWED_SENDERS. Anyone else is logged and silently ignored —
+    // no reply, no call to the agent backend at all.
+    if (!ALLOWED_SENDERS.has(chatPartner)) {
+        console.log(`[WhatsApp Inbound] Ignored — sender ${chatPartner} is not in WHATSAPP_ALLOWED_SENDERS.`);
+        return;
+    }
+
     // Let the user know Cherry is thinking
     if (chat && typeof chat.sendStateTyping === 'function') {
         try {
@@ -142,7 +198,10 @@ client.on('message_create', async (msg) => {
         formData.append('Body', msg.body);
 
         const response = await axios.post('http://localhost:8001/api/webhook/whatsapp', formData, {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Cherry-Webhook-Secret': WEBHOOK_SECRET
+            }
         });
 
         const reply = response.data.agent_reply;

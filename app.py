@@ -12,15 +12,26 @@ load_dotenv()
 
 from agent.core import run_agent_generator
 from agent.memory import list_documents, search_documents, get_messages, clear_messages, list_conversations, create_conversation, update_conversation, delete_conversation, get_db_connection, delete_pending_action
-from agent.tools import classify_and_organize_document, WORKSPACE_ROOT, INCOMING_DIR, list_workspace_files
+from agent.tools import classify_and_organize_document, WORKSPACE_ROOT, INCOMING_DIR, list_workspace_files, safe_join, WorkspaceEscapeError
 import agent.computer_use_tools  # Load all computer-use tools into TOOL_REGISTRY
 
 app = FastAPI(title="Cherry Agent Control Hub")
 
-# Enable CORS for easy cross-origin debugging if needed
+# CORS: restrict to the dashboard's own origin(s) by default. The previous "*" wildcard
+# combined with allow_credentials=True is a combination browsers already reject, and it
+# signalled the policy was never deliberately scoped. Override with CHERRY_ALLOWED_ORIGINS
+# (comma-separated) in .env if you deliberately want to reach the dashboard from other
+# origins (e.g. a phone on the same LAN via its IP).
+_default_origins = ["http://localhost:8001", "http://127.0.0.1:8001"]
+_configured_origins = os.getenv("CHERRY_ALLOWED_ORIGINS")
+allowed_origins = (
+    [o.strip() for o in _configured_origins.split(",") if o.strip()]
+    if _configured_origins
+    else _default_origins
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,12 +63,34 @@ else:
     print("Backdoor portal protection active.")
     print("--------------------------------------------------")
 
+# WhatsApp webhook protection. The webhook has to be reachable without a dashboard
+# session cookie (it's called by the local bridge process, not a logged-in browser), but
+# that previously meant ANYONE who could reach this port could trigger the full
+# shell-capable agent loop. WHATSAPP_WEBHOOK_SECRET gates the endpoint itself;
+# WHATSAPP_ALLOWED_SENDERS is defense-in-depth in case the webhook is ever hit directly
+# instead of through whatsapp_bridge.js (which already filters senders before it gets here).
+WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
+if not WHATSAPP_WEBHOOK_SECRET:
+    print("--------------------------------------------------")
+    print("WARNING: WHATSAPP_WEBHOOK_SECRET is not set in your .env file!")
+    print("The /api/webhook/whatsapp endpoint will reject all requests until it is set.")
+    print("Set it to the same value whatsapp_bridge.js sends as X-Cherry-Webhook-Secret.")
+    print("--------------------------------------------------")
+
+_allowed_senders_raw = os.getenv("WHATSAPP_ALLOWED_SENDERS", "").strip()
+WHATSAPP_ALLOWED_SENDERS = {s.strip() for s in _allowed_senders_raw.split(",") if s.strip()}
+if not WHATSAPP_ALLOWED_SENDERS:
+    print("--------------------------------------------------")
+    print("WARNING: WHATSAPP_ALLOWED_SENDERS is empty in your .env file!")
+    print("No WhatsApp sender will be allowed to reach the agent until this is set.")
+    print("--------------------------------------------------")
+
 class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/login")
 def login(req: LoginRequest):
-    if req.password == CHERRY_PASSWORD:
+    if secrets.compare_digest(req.password, CHERRY_PASSWORD):
         token = str(uuid.uuid4())
         ACTIVE_SESSIONS.add(token)
         response = JSONResponse(content={"status": "success", "message": "Authenticated successfully"})
@@ -395,16 +428,21 @@ async def upload_document(file: UploadFile = File(...)):
     """
     Accepts raw file, saves it to incoming/, and runs classifier pipeline.
     """
-    filename = file.filename
-    target_path = os.path.join(INCOMING_DIR, filename)
-    
+    filename = file.filename or "uploaded_file"
+    try:
+        # safe_join reduces the client-supplied filename to a bare basename and refuses
+        # to land outside INCOMING_DIR (blocks '../../whatever' style path traversal).
+        target_path = safe_join(INCOMING_DIR, filename)
+    except WorkspaceEscapeError as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+
     with open(target_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
+
     rel_incoming_path = os.path.relpath(target_path, WORKSPACE_ROOT)
     # Run classification
     result = classify_and_organize_document(rel_incoming_path)
-    
+
     return {"status": "success", "message": result}
 
 import subprocess
@@ -522,6 +560,7 @@ def update_whatsapp_status(req: WhatsappStatusUpdate):
 
 @app.post("/api/webhook/whatsapp")
 async def whatsapp_webhook(
+    request: Request,
     From: str = Form("whatsapp:+14155238886"),
     Body: str = Form(""),
     media: UploadFile = File(None),
@@ -531,13 +570,45 @@ async def whatsapp_webhook(
     Accepts simulated or real inbound text and media files from WhatsApp.
     If media is sent, it is auto-classified and filed.
     If text is sent, runs a fast single-prompt agent query.
+
+    This endpoint is intentionally exempt from the dashboard session-cookie check (see
+    check_session_middleware) because it's called by the local whatsapp_bridge.js process,
+    not a logged-in browser. That used to mean anyone who could reach this port could
+    trigger the full shell-capable agent with no authentication at all. It's now gated by
+    one of two credentials:
+      - a valid dashboard session cookie (the logged-in user testing the built-in WhatsApp
+        simulator panel in private/script.js — already trusted, so the sender allowlist
+        below doesn't apply to them either), or
+      - the shared secret header sent by whatsapp_bridge.js, in which case the sender
+        allowlist is enforced as defense in depth (the bridge already filters senders
+        before it gets here, but this endpoint doesn't rely solely on that).
     """
+    session_id = request.cookies.get("session_id")
+    is_dashboard_session = bool(session_id and session_id in ACTIVE_SESSIONS)
+
+    if not is_dashboard_session:
+        # 1. Shared-secret check — reject before touching the filesystem or the agent.
+        if not WHATSAPP_WEBHOOK_SECRET or not secrets.compare_digest(
+            request.headers.get("x-cherry-webhook-secret", ""), WHATSAPP_WEBHOOK_SECRET
+        ):
+            return JSONResponse(status_code=401, content={"status": "error", "message": "Unauthorized"})
+
+        # 2. Sender allowlist — defense in depth in case this is hit directly instead of
+        # through whatsapp_bridge.js (which already filters before forwarding here).
+        if not WHATSAPP_ALLOWED_SENDERS or From not in WHATSAPP_ALLOWED_SENDERS:
+            return JSONResponse(status_code=403, content={"status": "error", "message": "Sender not allowed"})
+
     log_msg = f"Webhook received from: {From}\nText: {Body}\n"
     media_msg = ""
-    
+
     if media:
-        filename = media.filename
-        target_path = os.path.join(INCOMING_DIR, filename)
+        filename = media.filename or "incoming_media"
+        try:
+            # safe_join reduces the sender-supplied filename to a bare basename and
+            # refuses to land outside INCOMING_DIR (blocks path-traversal filenames).
+            target_path = safe_join(INCOMING_DIR, filename)
+        except WorkspaceEscapeError as e:
+            return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
         with open(target_path, "wb") as buffer:
             shutil.copyfileobj(media.file, buffer)
         rel_path = os.path.relpath(target_path, WORKSPACE_ROOT)

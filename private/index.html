@@ -403,8 +403,11 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="/dashboard/script.js?v=8"></script>
+    <!-- Pinned to exact versions instead of a floating "latest" tag: an auto-updating
+         script here would be a supply-chain risk on a page that renders untrusted text. -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.14/dist/purify.min.js"></script>
+    <script src="/dashboard/script.js?v=9"></script>
     <!-- Cherry 3D mascot (rigged glTF, driven from script.js via mascotDo) -->
     <div id="cherry-mascot" title="Cherry — double-click me"></div>
     <script type="importmap">

@@ -8,28 +8,87 @@ import urllib.parse
 from datetime import datetime
 from agent.llm import call_llm
 from agent.memory import index_document, search_documents as db_search_documents, list_documents as db_list_documents
+from agent.schemas import RiskLevel
 
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", r"c:\Users\Admin\Desktop\Cherry")
 DOCUMENTS_ROOT = os.path.join(WORKSPACE_ROOT, "documents")
 INCOMING_DIR = os.path.join(WORKSPACE_ROOT, "incoming")
+DOCUMENT_CATEGORIES = ("bills", "education", "identity", "receipts", "uncategorized")
 
 # Ensure base folders exist
-for folder in ["bills", "education", "identity", "receipts", "uncategorized"]:
+for folder in DOCUMENT_CATEGORIES:
     os.makedirs(os.path.join(DOCUMENTS_ROOT, folder), exist_ok=True)
 os.makedirs(INCOMING_DIR, exist_ok=True)
 
 TOOL_REGISTRY = {}
 
-def register_tool(name, description, parameters):
+def register_tool(name, description, parameters, risk_level: RiskLevel = RiskLevel.HIGH):
+    """
+    risk_level classifies how much human approval a tool call needs before Cherry's
+    agent loop will execute it:
+      LOW    - read-only / no meaningful side effects.
+      MEDIUM - local, reversible side effects.
+      HIGH   - destructive and/or broad system reach (shell, delete, kill, etc.).
+    Defaults to HIGH so any tool added later without an explicit classification
+    fails closed (requires approval) rather than silently auto-executing.
+    """
     def decorator(func):
         TOOL_REGISTRY[name] = {
             "func": func,
             "name": name,
             "description": description,
-            "parameters": parameters
+            "parameters": parameters,
+            "risk_level": risk_level
         }
         return func
     return decorator
+
+
+class WorkspaceEscapeError(Exception):
+    """Raised when a resolved filesystem path would land outside the permitted directory."""
+    pass
+
+
+def safe_join(base_dir: str, *name_parts: str) -> str:
+    """
+    Joins one or more client/LLM-supplied name components onto base_dir and
+    guarantees the result stays inside base_dir. Each part is reduced to its
+    basename first (so '../../evil.txt' or embedded separators can't escape or
+    nest into subfolders), then the final path is resolved and containment is
+    verified. Raises WorkspaceEscapeError if containment still fails.
+    """
+    base_real = os.path.realpath(base_dir)
+    safe_parts = [os.path.basename(p) for p in name_parts if p]
+    candidate = os.path.join(base_dir, *safe_parts) if safe_parts else base_dir
+    candidate_real = os.path.realpath(candidate)
+    if candidate_real != base_real and not candidate_real.startswith(base_real + os.sep):
+        raise WorkspaceEscapeError(
+            f"Resolved path '{candidate_real}' escapes the allowed directory '{base_real}'."
+        )
+    return candidate_real
+
+
+def resolve_workspace_path(path: str, allow_outside_workspace: bool = False) -> str:
+    """
+    Resolves a tool-supplied path (absolute, or relative to WORKSPACE_ROOT).
+    By default the resolved path must stay inside WORKSPACE_ROOT. Pass
+    allow_outside_workspace=True to explicitly permit a path elsewhere on disk
+    (e.g. "organize files in my Downloads folder") — the caller/LLM must ask
+    for that escape hatch on purpose, per call, rather than getting it for free.
+    Raises WorkspaceEscapeError if containment is required but violated.
+    """
+    full_path = path if os.path.isabs(path) else os.path.join(WORKSPACE_ROOT, path)
+    resolved = os.path.realpath(full_path)
+    if allow_outside_workspace:
+        return resolved
+    workspace_real = os.path.realpath(WORKSPACE_ROOT)
+    if resolved != workspace_real and not resolved.startswith(workspace_real + os.sep):
+        raise WorkspaceEscapeError(
+            f"'{path}' resolves to '{resolved}', which is outside the Cherry workspace "
+            f"('{workspace_real}'). Pass allow_outside_workspace=true on this tool call "
+            f"if you intentionally need to reach a path outside the workspace."
+        )
+    return resolved
 
 # ==========================================
 # WORKSPACE TOOLS
@@ -37,20 +96,25 @@ def register_tool(name, description, parameters):
 
 @register_tool(
     name="list_workspace_files",
-    description="List files and directories in a directory (absolute path or relative to workspace). Defaults to listing the workspace root.",
+    description="List files and directories in a directory (absolute path or relative to workspace). Defaults to listing the workspace root. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
-            "directory_path": {"type": "string", "description": "Optional absolute path or relative path to list (e.g. 'C:\\Users\\Admin\\Desktop'). Defaults to workspace root."}
+            "directory_path": {"type": "string", "description": "Optional absolute path or relative path to list (e.g. 'C:\\Users\\Admin\\Desktop'). Defaults to workspace root."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly list a directory outside the Cherry workspace folder. Default false."}
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
-def list_workspace_files(directory_path: str = None):
+def list_workspace_files(directory_path: str = None, allow_outside_workspace: bool = False):
     target_dir = WORKSPACE_ROOT
     if directory_path:
-        target_dir = directory_path if os.path.isabs(directory_path) else os.path.join(WORKSPACE_ROOT, directory_path)
-    
+        try:
+            target_dir = resolve_workspace_path(directory_path, allow_outside_workspace=allow_outside_workspace)
+        except WorkspaceEscapeError as e:
+            return f"Error: {e}"
+
     if not os.path.exists(target_dir):
         return f"Error: Directory {target_dir} does not exist."
     
@@ -71,17 +135,22 @@ def list_workspace_files(directory_path: str = None):
 
 @register_tool(
     name="read_workspace_file",
-    description="Read the text content of a file (absolute path or relative to workspace).",
+    description="Read the text content of a file (absolute path or relative to workspace). Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
-            "file_path": {"type": "string", "description": "Relative path or absolute system path to read."}
+            "file_path": {"type": "string", "description": "Relative path or absolute system path to read."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly read a file outside the Cherry workspace folder. Default false."}
         },
         "required": ["file_path"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
-def read_workspace_file(file_path: str):
-    full_path = file_path if os.path.isabs(file_path) else os.path.join(WORKSPACE_ROOT, file_path)
+def read_workspace_file(file_path: str, allow_outside_workspace: bool = False):
+    try:
+        full_path = resolve_workspace_path(file_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_path):
         return f"Error: File {file_path} does not exist."
     try:
@@ -92,18 +161,23 @@ def read_workspace_file(file_path: str):
 
 @register_tool(
     name="write_workspace_file",
-    description="Create or overwrite a file (absolute path or relative to workspace) with new content.",
+    description="Create or overwrite a file (absolute path or relative to workspace) with new content. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "file_path": {"type": "string", "description": "Relative path or absolute system path to write."},
-            "content": {"type": "string", "description": "The exact content to write to the file."}
+            "content": {"type": "string", "description": "The exact content to write to the file."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly write a file outside the Cherry workspace folder. Default false."}
         },
         "required": ["file_path", "content"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def write_workspace_file(file_path: str, content: str):
-    full_path = file_path if os.path.isabs(file_path) else os.path.join(WORKSPACE_ROOT, file_path)
+def write_workspace_file(file_path: str, content: str, allow_outside_workspace: bool = False):
+    try:
+        full_path = resolve_workspace_path(file_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     try:
         with open(full_path, "w", encoding="utf-8") as f:
@@ -114,19 +188,24 @@ def write_workspace_file(file_path: str, content: str):
 
 @register_tool(
     name="patch_workspace_file",
-    description="Replace a target block of text inside a file (absolute path or relative to workspace) with new content.",
+    description="Replace a target block of text inside a file (absolute path or relative to workspace) with new content. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
             "file_path": {"type": "string", "description": "Relative path or absolute system path to modify."},
             "target": {"type": "string", "description": "The exact block of code/text to find and replace."},
-            "replacement": {"type": "string", "description": "The new replacement text."}
+            "replacement": {"type": "string", "description": "The new replacement text."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly modify a file outside the Cherry workspace folder. Default false."}
         },
         "required": ["file_path", "target", "replacement"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
-def patch_workspace_file(file_path: str, target: str, replacement: str):
-    full_path = file_path if os.path.isabs(file_path) else os.path.join(WORKSPACE_ROOT, file_path)
+def patch_workspace_file(file_path: str, target: str, replacement: str, allow_outside_workspace: bool = False):
+    try:
+        full_path = resolve_workspace_path(file_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_path):
         return f"Error: File {file_path} does not exist."
     try:
@@ -154,7 +233,8 @@ def patch_workspace_file(file_path: str, target: str, replacement: str):
             "query": {"type": "string", "description": "The search query (e.g. 'LLM quantization')."}
         },
         "required": ["query"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def search_arxiv(query: str):
     import urllib.request
@@ -193,7 +273,8 @@ def search_arxiv(query: str):
             "url": {"type": "string", "description": "The HTTP/HTTPS URL of the website to scrape."}
         },
         "required": ["url"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def scrape_web_page(url: str):
     import httpx
@@ -231,7 +312,8 @@ def scrape_web_page(url: str):
             "url": {"type": "string", "description": "The full URL to open (e.g. 'https://www.youtube.com')."}
         },
         "required": ["url"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def open_url(url: str):
     if not url.startswith("http://") and not url.startswith("https://"):
@@ -252,7 +334,8 @@ def open_url(url: str):
             "query": {"type": "string", "description": "The search query for YouTube (e.g. 'project hail mary trailer', 'Coldplay Yellow', 'funny cat videos')."}
         },
         "required": ["query"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def play_on_youtube(query: str):
     import urllib.parse
@@ -312,7 +395,8 @@ with sync_playwright() as p:
             "app_name": {"type": "string", "description": "The application name to launch (e.g. 'notepad', 'calc', 'spotify', 'code', 'taskmgr', 'ms-settings:')."}
         },
         "required": ["app_name"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def open_app(app_name: str):
     # Map common friendly names to actual commands
@@ -361,7 +445,8 @@ def open_app(app_name: str):
             "query": {"type": "string", "description": "The search term or question to Google."}
         },
         "required": ["query"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def google_search(query: str):
     import webbrowser
@@ -381,7 +466,8 @@ def google_search(query: str):
             "level": {"type": "integer", "description": "Volume percentage level (0 to 100)."}
         },
         "required": ["level"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def adjust_system_volume(level: int):
     try:
@@ -406,17 +492,22 @@ def adjust_system_volume(level: int):
 
 @register_tool(
     name="print_document",
-    description="Send a local document file directly to the default system printer.",
+    description="Send a local document file directly to the default system printer. Paths outside the workspace require allow_outside_workspace=true.",
     parameters={
         "type": "object",
         "properties": {
-            "file_path": {"type": "string", "description": "Absolute or relative path to the file to print."}
+            "file_path": {"type": "string", "description": "Absolute or relative path to the file to print."},
+            "allow_outside_workspace": {"type": "boolean", "description": "Set true to explicitly print a file outside the Cherry workspace folder. Default false."}
         },
         "required": ["file_path"]
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
-def print_document(file_path: str):
-    full_path = os.path.join(WORKSPACE_ROOT, file_path) if not os.path.isabs(file_path) else file_path
+def print_document(file_path: str, allow_outside_workspace: bool = False):
+    try:
+        full_path = resolve_workspace_path(file_path, allow_outside_workspace=allow_outside_workspace)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_path):
         return f"Error: Document {file_path} not found."
     try:
@@ -435,7 +526,8 @@ def print_document(file_path: str):
             "script_code": {"type": "string", "description": "The python code to execute. MUST import 'sync_playwright' from 'playwright.sync_api' and execute inside a try-except block."}
         },
         "required": ["script_code"]
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
 def run_browser_automation(script_code: str):
     script_path = os.path.join(WORKSPACE_ROOT, "temp_playwright.py")
@@ -462,7 +554,8 @@ def run_browser_automation(script_code: str):
             "folder_name": {"type": "string", "description": "Name of the folder inside Cherry to save the download."}
         },
         "required": ["url", "folder_name"]
-    }
+    },
+    risk_level=RiskLevel.HIGH
 )
 def download_youtube_video(url: str, folder_name: str):
     import yt_dlp
@@ -494,10 +587,14 @@ def download_youtube_video(url: str, folder_name: str):
             "file_path": {"type": "string", "description": "Relative or absolute path of the raw file to organize."}
         },
         "required": ["file_path"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def classify_and_organize_document(file_path: str):
-    full_path = os.path.join(WORKSPACE_ROOT, file_path) if not os.path.isabs(file_path) else file_path
+    try:
+        full_path = resolve_workspace_path(file_path)
+    except WorkspaceEscapeError as e:
+        return f"Error: {e}"
     if not os.path.exists(full_path):
         return f"Error: Document {file_path} not found."
         
@@ -570,16 +667,25 @@ def classify_and_organize_document(file_path: str):
         
         classification = json.loads(response_text)
         category = classification.get("category", "uncategorized")
+        if category not in DOCUMENT_CATEGORIES:
+            # The category came from the LLM's reading of untrusted document content —
+            # never let it become an arbitrary path component. Fall back to a known-safe folder.
+            category = "uncategorized"
         clean_name = classification.get("clean_filename", filename)
         doc_metadata = classification.get("metadata", {})
-        
+
         # Ensure clean name matches extension
         if not clean_name.endswith(ext):
             clean_name = os.path.splitext(clean_name)[0] + ext
-            
+
         target_dir = os.path.join(DOCUMENTS_ROOT, category)
-        target_path = os.path.join(target_dir, clean_name)
-        
+        try:
+            # clean_name is also LLM-derived from untrusted document content; safe_join
+            # strips it to a bare filename and refuses to land outside target_dir.
+            target_path = safe_join(target_dir, clean_name)
+        except WorkspaceEscapeError as e:
+            return f"Failed to classify and organize document: {e}"
+
         # Move the file
         shutil.move(full_path, target_path)
         
@@ -594,7 +700,7 @@ def classify_and_organize_document(file_path: str):
             doc_metadata=doc_metadata
         )
         
-        return f"Successfully classified and organized file '{filename}' into '{category}/{clean_name}'\nMetadata: {json.dumps(doc_metadata, indent=2)}"
+        return f"Successfully classified and organized file '{filename}' into '{category}/{os.path.basename(target_path)}'\nMetadata: {json.dumps(doc_metadata, indent=2)}"
     except Exception as e:
         return f"Failed to classify and organize document: {str(e)}"
 
@@ -607,7 +713,8 @@ def classify_and_organize_document(file_path: str):
             "query": {"type": "string", "description": "The search keyword or description of the document."}
         },
         "required": ["query"]
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def search_documents(query: str):
     results = db_search_documents(query)
@@ -624,7 +731,8 @@ def search_documents(query: str):
             "category": {"type": "string", "description": "Filter by category: 'bills', 'education', 'identity', 'receipts'."}
         },
         "required": []
-    }
+    },
+    risk_level=RiskLevel.LOW
 )
 def list_organized_documents(category: str = None):
     results = db_list_documents(category)
@@ -639,7 +747,8 @@ def list_organized_documents(category: str = None):
             "model_name": {"type": "string", "description": "The exact identifier name of the voice model to switch to."}
         },
         "required": ["model_name"]
-    }
+    },
+    risk_level=RiskLevel.MEDIUM
 )
 def change_voice_model(model_name: str):
     config_path = os.path.join(WORKSPACE_ROOT, "config.json")
