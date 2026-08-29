@@ -168,9 +168,15 @@ document.addEventListener("DOMContentLoaded", () => {
     let activeEventSource = null;
 
     function mascotDo(action) {
-        if (window.CherryMascot && typeof window.CherryMascot[action] === "function") {
-            window.CherryMascot[action]();
-        }
+        const m = window.CherryMascot;
+        if (!m) return;                       // mascot not mounted / still loading
+        const map = {
+            idle: "idle",       thinking: "thinking", talking: "talking",
+            jump: "jumping",    error: "error",       sleep: "sleeping",
+            wave: "waving",     happy: "happy",       sad: "sad"
+        };
+        const state = map[action];
+        if (state) m.setState(state);
     }
 
     async function sendChatMessage() {

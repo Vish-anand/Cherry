@@ -9,6 +9,29 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/style.css?v=12">
+    <style>
+        /* ---- Cherry 3D mascot ---- */
+        #cherry-mascot {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            width: 190px;
+            height: 230px;
+            z-index: 900;
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            opacity: 0;
+            transition: opacity .5s ease, filter .4s ease;
+            filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .22));
+        }
+        #cherry-mascot.mascot-ready { opacity: 1; }
+        #cherry-mascot.mascot-failed { display: none; }
+        #cherry-mascot:active { cursor: grabbing; }
+        #cherry-mascot.is-sleeping { filter: drop-shadow(0 8px 14px rgba(0,0,0,.18)) saturate(.72) brightness(.94); }
+        #cherry-mascot canvas { width: 100%; height: 100%; display: block; }
+        @media (max-width: 900px) { #cherry-mascot { width: 132px; height: 160px; right: 10px; bottom: 10px; } }
+    </style>
 </head>
 <body>
     <div class="cherry-app">
@@ -380,12 +403,18 @@
         </div>
     </div>
 
-    <div class="cherry-mascot-shell" id="cherry-mascot" title="Double-click me">
-        <div class="mascot-sleep-bubble">Zzz</div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script type="module" src="/dashboard/mascot.js?v=1"></script>
     <script src="/dashboard/script.js?v=8"></script>
+    <!-- Cherry 3D mascot (rigged glTF, driven from script.js via mascotDo) -->
+    <div id="cherry-mascot" title="Cherry — double-click me"></div>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+    <script type="module" src="/dashboard/mascot.js?v=2"></script>
 </body>
 </html>

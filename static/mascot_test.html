@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cherry mascot — clip test</title>
+<style>
+  html,body{margin:0;height:100%;background:#f4f1ee;font-family:system-ui,sans-serif;color:#333}
+  #wrap{display:flex;height:100%}
+  #stage{flex:1;position:relative}
+  #stage canvas{width:100%;height:100%;display:block}
+  #ui{width:210px;padding:14px;background:#fff;border-left:1px solid #e2ddd8;overflow:auto}
+  button{display:block;width:100%;margin:0 0 6px;padding:8px;border:1px solid #d8d2cc;background:#faf8f6;
+         border-radius:6px;cursor:pointer;font-size:13px}
+  button.on{background:#d81c34;color:#fff;border-color:#d81c34}
+  #log{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;margin-top:12px;color:#666}
+  h4{margin:14px 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage"></div><div id="ui">
+  <h4>Clips</h4><div id="clips"></div>
+  <h4>Morphs</h4><div id="morphs"></div>
+  <div id="log">loading…</div>
+</div></div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+
+const log = (m)=>{ document.getElementById('log').textContent += "\n"+m; console.log("[test]", m); };
+const FLAT = new Set(["M_Line","M_Crease","M_GreenLine","M_Iris","M_MouthInner","M_LipFill","M_EyeHi","M_White"]);
+const OUTLINE = new Set(["M_OutlineGreen","M_OutlineRed","M_OutlineEye"]);
+
+function gradientMap(){
+  const steps=[0.50,0.68,0.85,1.0], d=new Uint8Array(steps.length*4);
+  steps.forEach((s,i)=>{const v=Math.round(s*255); d[i*4]=d[i*4+1]=d[i*4+2]=v; d[i*4+3]=255;});
+  const t=new THREE.DataTexture(d,steps.length,1,THREE.RGBAFormat);
+  t.minFilter=t.magFilter=THREE.NearestFilter; t.generateMipmaps=false; t.needsUpdate=true; return t;
+}
+const GM = gradientMap();
+
+const stage=document.getElementById('stage');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(32,1,0.05,100);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x5a3a3a,1.05));
+const key=new THREE.DirectionalLight(0xffffff,2.0); key.position.set(-2.6,3.4,4.2); scene.add(key);
+const fill=new THREE.DirectionalLight(0xffd9e2,0.5); fill.position.set(3.2,1.2,2.4); scene.add(fill);
+
+function resize(){
+  const w=stage.clientWidth,h=stage.clientHeight;
+  camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h,false);
+}
+addEventListener('resize',resize); resize();
+
+const draco=new DRACOLoader();
+draco.setDecoderPath("https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/gltf/");
+const loader=new GLTFLoader(); loader.setDRACOLoader(draco);
+
+let mixer=null, cur=null, morphMesh=null, root=null;
+const clock=new THREE.Clock();
+
+loader.load("/static/models/cherry.glb", (gltf)=>{
+  const model=gltf.scene; root=model;
+  let mats=new Set();
+  model.traverse(o=>{
+    if(!o.isMesh) return;
+    o.frustumCulled=false;
+    const n=o.material.name||"", c=o.material.color?o.material.color.clone():new THREE.Color(0xffffff);
+    mats.add(n);
+    if(OUTLINE.has(n))      o.material=new THREE.MeshBasicMaterial({name:n,color:c,side:THREE.FrontSide,toneMapped:false});
+    else if(FLAT.has(n))    o.material=new THREE.MeshBasicMaterial({name:n,color:c,toneMapped:false});
+    else                    o.material=new THREE.MeshToonMaterial({name:n,color:c,gradientMap:GM});
+    if(o.morphTargetDictionary && !morphMesh) morphMesh=o;
+  });
+  scene.add(model);
+  model.updateWorldMatrix(true,true);
+  const box=new THREE.Box3().setFromObject(model), size=box.getSize(new THREE.Vector3());
+  model.position.sub(box.getCenter(new THREE.Vector3()));
+  const fov=THREE.MathUtils.degToRad(camera.fov);
+  const dist=(Math.max(size.y,size.x/camera.aspect)/2)/Math.tan(fov/2)*1.2;
+  camera.position.set(0,0,dist); camera.lookAt(0,0,0);
+  camera.near=dist*0.05; camera.far=dist*6; camera.updateProjectionMatrix();
+
+  mixer=new THREE.AnimationMixer(model);
+  const box2=document.getElementById('clips');
+  gltf.animations.forEach(cl=>{
+    const b=document.createElement('button'); b.textContent=cl.name+"  ("+cl.duration.toFixed(2)+"s)";
+    b.onclick=()=>{
+      [...box2.children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+      const a=mixer.clipAction(cl); a.reset(); a.setLoop(THREE.LoopRepeat,Infinity); a.enabled=true;
+      a.setEffectiveWeight(1);
+      if(cur&&cur!==a) a.crossFadeFrom(cur,0.3,false).play(); else a.fadeIn(0.3).play();
+      cur=a;
+    };
+    box2.appendChild(b);
+  });
+  const mbox=document.getElementById('morphs');
+  Object.keys(morphMesh?morphMesh.morphTargetDictionary:{}).forEach(k=>{
+    const b=document.createElement('button'); b.textContent=k;
+    b.onclick=()=>{ const i=morphMesh.morphTargetDictionary[k];
+      const v=morphMesh.morphTargetInfluences[i]>0.5?0:1;
+      morphMesh.morphTargetInfluences[i]=v; b.classList.toggle('on',v>0.5); };
+    mbox.appendChild(b);
+  });
+
+  log("OK size="+size.toArray().map(v=>v.toFixed(2)).join("/"));
+  log("clips="+gltf.animations.map(a=>a.name).join(","));
+  log("morphs="+Object.keys(morphMesh?morphMesh.morphTargetDictionary:{}).length);
+  log("materials="+[...mats].join(","));
+  window.__ready=true;
+  if(box2.firstChild) box2.firstChild.click();
+}, undefined, e=>{ log("LOAD ERROR: "+e); window.__ready="error"; });
+
+(function loop(){
+  requestAnimationFrame(loop);
+  const dt=Math.min(clock.getDelta(),0.05);
+  if(mixer) mixer.update(dt);
+  renderer.render(scene,camera);
+})();
+
+// helpers for automated screenshots
+window.__play=(name,t)=>{
+  const b=[...document.getElementById('clips').children].find(x=>x.textContent.startsWith(name));
+  if(!b) return "no clip "+name;
+  b.click();
+  if(t!==undefined && cur){ cur.time=t; mixer.update(0); }
+  return "ok";
+};
+window.__seek=(t)=>{ if(cur){ cur.time=t; mixer.update(0);} return cur?cur.time:-1; };
+</script>
+</body>
+</html>
